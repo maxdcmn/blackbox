@@ -52,8 +52,6 @@ struct ThreadInfo {
 struct NsightMetrics {
     unsigned long long atomic_operations;
     unsigned long long threads_per_block;
-    unsigned long long blocks_per_sm;
-    unsigned long long shared_memory_usage;
     double occupancy;
     // Memory block activity metrics
     unsigned long long active_blocks;  // Blocks actively processing
@@ -82,12 +80,6 @@ struct DetailedVRAMInfo {
     double fragmentation_ratio;
     // Nsight Compute metrics per process (keyed by PID)
     std::map<unsigned int, NsightMetrics> nsight_metrics;
-};
-
-struct VRAMInfo {
-    unsigned long long total;
-    unsigned long long used;
-    unsigned long long free;
 };
 
 static nvmlDevice_t g_device = nullptr;
@@ -121,21 +113,6 @@ void shutdownNVML() {
 
 void parseVLLMMetrics(const std::string& metrics, DetailedVRAMInfo& info);
 NsightMetrics getNsightMetrics(unsigned int pid);
-NsightMetrics getNsightMetrics(unsigned int pid);
-
-VRAMInfo getVRAMUsage() {
-    VRAMInfo info = {0, 0, 0};
-    if (!initNVML()) return info;
-#ifdef NVML_AVAILABLE
-    nvmlMemory_t memory;
-    if (nvmlDeviceGetMemoryInfo(g_device, &memory) == NVML_SUCCESS) {
-        info.total = memory.total;
-        info.used = memory.used;
-        info.free = memory.free;
-    }
-#endif
-    return info;
-}
 
 // Get detailed VRAM usage combining NVML (system-level) and vLLM metrics (application-level)
 // 
@@ -228,19 +205,6 @@ DetailedVRAMInfo getDetailedVRAMUsage(const std::string& vllm_metrics = "") {
         detailed.threads.push_back(ti);
     }
     
-    // Get Nsight Compute metrics first (needed for accurate block utilization)
-    // This must be done before parsing vLLM metrics so we can use the data
-    for (auto& pm : detailed.processes) {
-        NsightMetrics nsight = getNsightMetrics(pm.pid);
-        if (nsight.available) {
-            detailed.nsight_metrics[pm.pid] = nsight;
-            std::cout << "[DEBUG] Nsight metrics for PID " << pm.pid 
-                      << ": active_blocks=" << nsight.active_blocks
-                      << ", dram_read=" << nsight.dram_read_bytes
-                      << ", dram_write=" << nsight.dram_write_bytes << std::endl;
-        }
-    }
-    
     // Parse vLLM metrics to populate blocks and update counts
     // This will use Nsight Compute data if available for more accurate block utilization
     if (!vllm_metrics.empty()) {
@@ -248,17 +212,6 @@ DetailedVRAMInfo getDetailedVRAMUsage(const std::string& vllm_metrics = "") {
     }
 #endif
     return detailed;
-}
-
-std::string createResponse(const VRAMInfo& info) {
-    std::ostringstream oss;
-    double usedPercent = info.total > 0 ? (100.0 * info.used / info.total) : 0.0;
-    oss << R"({"total_bytes":)" << info.total
-        << R"(,"used_bytes":)" << info.used
-        << R"(,"free_bytes":)" << info.free
-        << R"(,"used_percent":)" << std::fixed << std::setprecision(2) << usedPercent
-        << "}";
-    return oss.str();
 }
 
 std::string fetchVLLMEndpoint(const std::string& host, const std::string& port, const std::string& path) {
@@ -651,8 +604,6 @@ std::string createDetailedResponse(const DetailedVRAMInfo& info, const std::stri
         oss << R"(")" << pid << R"(":{)"
             << R"("atomic_operations":)" << metrics.atomic_operations
             << R"(,"threads_per_block":)" << metrics.threads_per_block
-            << R"(,"blocks_per_sm":)" << metrics.blocks_per_sm
-            << R"(,"shared_memory_usage":)" << metrics.shared_memory_usage
             << R"(,"occupancy":)" << std::fixed << std::setprecision(4) << metrics.occupancy
             << R"(,"active_blocks":)" << metrics.active_blocks
             << R"(,"memory_throughput":)" << metrics.memory_throughput
