@@ -270,7 +270,12 @@ std::string fetchVLLMMetrics(const std::string& vllm_url = "http://localhost:800
 }
 
 void parseVLLMMetrics(const std::string& metrics, DetailedVRAMInfo& info) {
-    if (metrics.empty()) return;
+    std::cout << "[DEBUG] parseVLLMMetrics called, metrics length=" << metrics.length() << std::endl;
+    
+    if (metrics.empty()) {
+        std::cout << "[DEBUG] metrics is empty, returning" << std::endl;
+        return;
+    }
     
     // Handle JSON-escaped newlines
     std::string unescaped_metrics = metrics;
@@ -290,6 +295,9 @@ void parseVLLMMetrics(const std::string& metrics, DetailedVRAMInfo& info) {
     
     while (std::getline(iss, line)) {
         if (line.find("cache_config_info") != std::string::npos) {
+            std::cout << "[DEBUG] Found cache_config_info line (first 200 chars): " 
+                      << line.substr(0, 200) << std::endl;
+            
             // Find num_gpu_blocks="14401"
             size_t num_start = line.find("num_gpu_blocks=\"");
             if (num_start != std::string::npos) {
@@ -299,7 +307,11 @@ void parseVLLMMetrics(const std::string& metrics, DetailedVRAMInfo& info) {
                     try {
                         std::string num_str = line.substr(num_start, num_end - num_start);
                         num_gpu_blocks = std::stoi(num_str);
-                    } catch (...) {}
+                        std::cout << "[DEBUG] Parsed num_gpu_blocks=" << num_gpu_blocks 
+                                  << " from string: " << num_str << std::endl;
+                    } catch (const std::exception& e) {
+                        std::cout << "[DEBUG] Failed to parse num_gpu_blocks: " << e.what() << std::endl;
+                    }
                 }
             }
             
@@ -312,7 +324,11 @@ void parseVLLMMetrics(const std::string& metrics, DetailedVRAMInfo& info) {
                     try {
                         std::string size_str = line.substr(size_start, size_end - size_start);
                         block_size = std::stoi(size_str);
-                    } catch (...) {}
+                        std::cout << "[DEBUG] Parsed block_size=" << block_size 
+                                  << " from string: " << size_str << std::endl;
+                    } catch (const std::exception& e) {
+                        std::cout << "[DEBUG] Failed to parse block_size: " << e.what() << std::endl;
+                    }
                 }
             }
         }
@@ -321,8 +337,12 @@ void parseVLLMMetrics(const std::string& metrics, DetailedVRAMInfo& info) {
             size_t val_start = line.find_last_of(" ");
             if (val_start != std::string::npos) {
                 try {
-                    kv_cache_usage = std::stod(line.substr(val_start + 1));
-                } catch (...) {}
+                    std::string usage_str = line.substr(val_start + 1);
+                    kv_cache_usage = std::stod(usage_str);
+                    std::cout << "[DEBUG] Parsed kv_cache_usage=" << kv_cache_usage << " from string: " << usage_str << std::endl;
+                } catch (const std::exception& e) {
+                    std::cout << "[DEBUG] Failed to parse kv_cache_usage: " << e.what() << std::endl;
+                }
             }
         }
         
@@ -345,6 +365,12 @@ void parseVLLMMetrics(const std::string& metrics, DetailedVRAMInfo& info) {
         }
     }
     
+    std::cout << "[DEBUG] parseVLLMMetrics: num_gpu_blocks=" << num_gpu_blocks 
+              << ", block_size=" << block_size 
+              << ", kv_cache_usage=" << kv_cache_usage 
+              << ", info.used=" << info.used 
+              << ", info.total=" << info.total << std::endl;
+    
     if (num_gpu_blocks > 0) {
         unsigned long long block_bytes = (unsigned long long)block_size * 1024;
         
@@ -352,17 +378,26 @@ void parseVLLMMetrics(const std::string& metrics, DetailedVRAMInfo& info) {
         int active_blocks;
         if (kv_cache_usage > 0.0) {
             active_blocks = (int)(num_gpu_blocks * kv_cache_usage / 100.0);
+            std::cout << "[DEBUG] Using kv_cache_usage: " << kv_cache_usage 
+                      << "%, calculated active_blocks=" << active_blocks << std::endl;
         } else {
             // Fallback: estimate based on used memory vs total blocks
             // Assume blocks are used proportionally to memory usage
             if (info.total > 0) {
                 double mem_usage_ratio = (double)info.used / info.total;
                 active_blocks = (int)(num_gpu_blocks * mem_usage_ratio);
+                std::cout << "[DEBUG] Using memory usage fallback: mem_usage_ratio=" << mem_usage_ratio 
+                          << ", calculated active_blocks=" << active_blocks << std::endl;
             } else {
                 active_blocks = 0;
+                std::cout << "[DEBUG] info.total is 0, setting active_blocks=0" << std::endl;
             }
         }
         int free_blocks = num_gpu_blocks - active_blocks;
+        
+        std::cout << "[DEBUG] Final block counts: active_blocks=" << active_blocks 
+                  << ", free_blocks=" << free_blocks 
+                  << ", num_gpu_blocks=" << num_gpu_blocks << std::endl;
         
         // Override with vLLM block data
         info.active_blocks = active_blocks;

@@ -29,7 +29,7 @@ def parse_vram(data: Dict[str, Any], clear_screen: bool = False):
     reserved = data.get('reserved_bytes', 0)
     used_pct = data.get('used_percent', 0)
     
-    print(f"\n📊 Summary:")
+    print(f"\nSummary:")
     print(f"  Total:     {format_bytes(total)}")
     print(f"  Used:      {format_bytes(used)} ({used_pct:.2f}%)")
     print(f"  Free:      {format_bytes(free)}")
@@ -41,7 +41,7 @@ def parse_vram(data: Dict[str, Any], clear_screen: bool = False):
     frag = data.get('fragmentation_ratio', 0)
     atomic = data.get('atomic_allocations_bytes', 0)
     
-    print(f"\n🔲 Blocks:")
+    print(f"\nBlocks:")
     print(f"  Active: {active}")
     print(f"  Free:   {free_blocks}")
     print(f"  Fragmentation: {frag:.4f}")
@@ -50,7 +50,7 @@ def parse_vram(data: Dict[str, Any], clear_screen: bool = False):
     # Processes
     processes = data.get('processes', [])
     if processes:
-        print(f"\n🖥️  Processes ({len(processes)}):")
+        print(f"\nProcesses ({len(processes)}):")
         print(f"  {'PID':<10} {'Name':<25} {'Used':<15} {'Reserved':<15}")
         print("  " + "-" * 65)
         for p in processes:
@@ -61,7 +61,7 @@ def parse_vram(data: Dict[str, Any], clear_screen: bool = False):
     # Threads
     threads = data.get('threads', [])
     if threads:
-        print(f"\n🧵 Threads ({len(threads)}):")
+        print(f"\nThreads ({len(threads)}):")
         print(f"  {'ID':<10} {'Allocated':<15} {'State':<10}")
         print("  " + "-" * 35)
         for t in threads:
@@ -75,7 +75,7 @@ def parse_vram(data: Dict[str, Any], clear_screen: bool = False):
         allocated_blocks = [b for b in blocks if b.get('allocated', False)]
         free_blocks = [b for b in blocks if not b.get('allocated', False)]
         
-        print(f"\n📦 Memory Blocks ({len(blocks)} total, {len(allocated_blocks)} allocated, {len(free_blocks)} free):")
+        print(f"\nMemory Blocks ({len(blocks)} total, {len(allocated_blocks)} allocated, {len(free_blocks)} free):")
         
         if allocated_blocks:
             print(f"\n  Allocated Blocks (showing first 20 of {len(allocated_blocks)}):")
@@ -99,10 +99,26 @@ def parse_vram(data: Dict[str, Any], clear_screen: bool = False):
             if len(free_blocks) > 20:
                 print(f"    ... and {len(free_blocks) - 20} more free blocks")
     
+    # Nsight Compute Metrics
+    nsight_metrics = data.get('nsight_metrics', {})
+    if nsight_metrics:
+        print(f"\nNsight Compute Metrics:")
+        print("  " + "-" * 58)
+        for pid, metrics in nsight_metrics.items():
+            if isinstance(metrics, dict) and metrics.get('available', False):
+                print(f"\n  PID {pid}:")
+                print(f"    Atomic Operations: {metrics.get('atomic_operations', 0):,}")
+                print(f"    Threads per Block: {metrics.get('threads_per_block', 0)}")
+                print(f"    Blocks per SM: {metrics.get('blocks_per_sm', 0)}")
+                print(f"    Shared Memory Usage: {format_bytes(metrics.get('shared_memory_usage', 0))}")
+                print(f"    Occupancy: {metrics.get('occupancy', 0.0):.2f}%")
+            elif isinstance(metrics, dict):
+                print(f"\n  PID {pid}: (No metrics available - process may not be running CUDA kernels)")
+    
     # vLLM Metrics
     vllm_metrics = data.get('vllm_metrics', '')
     if vllm_metrics:
-        print(f"\n🤖 vLLM Metrics:")
+        print(f"\nvLLM Metrics:")
         print("  " + "-" * 58)
         for line in vllm_metrics.split('\n'):
             if line.strip() and not line.strip().startswith('#'):
