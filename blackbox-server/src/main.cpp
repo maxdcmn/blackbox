@@ -148,6 +148,7 @@ DetailedVRAMInfo getDetailedVRAMUsage(const std::string& vllm_metrics = "") {
         }
     }
 
+    // Default values (will be overridden by vLLM if available)
     detailed.active_blocks = detailed.processes.size();
     detailed.free_blocks = 0;
     detailed.atomic_allocations = detailed.used;
@@ -162,6 +163,7 @@ DetailedVRAMInfo getDetailedVRAMUsage(const std::string& vllm_metrics = "") {
         detailed.threads.push_back(ti);
     }
     
+    // Parse vLLM metrics to populate blocks and update counts
     if (!vllm_metrics.empty()) {
         parseVLLMMetrics(vllm_metrics, detailed);
     }
@@ -279,12 +281,29 @@ void parseVLLMMetrics(const std::string& metrics, DetailedVRAMInfo& info) {
     
     if (num_gpu_blocks > 0) {
         unsigned long long block_bytes = (unsigned long long)block_size * 1024;
-        int active_blocks = (int)(num_gpu_blocks * kv_cache_usage / 100.0);
+        
+        // Calculate active blocks based on kv_cache_usage or fallback to memory usage
+        int active_blocks;
+        if (kv_cache_usage > 0.0) {
+            active_blocks = (int)(num_gpu_blocks * kv_cache_usage / 100.0);
+        } else {
+            // Fallback: estimate based on used memory vs total blocks
+            // Assume blocks are used proportionally to memory usage
+            if (info.total > 0) {
+                double mem_usage_ratio = (double)info.used / info.total;
+                active_blocks = (int)(num_gpu_blocks * mem_usage_ratio);
+            } else {
+                active_blocks = 0;
+            }
+        }
         int free_blocks = num_gpu_blocks - active_blocks;
         
+        // Override with vLLM block data
         info.active_blocks = active_blocks;
         info.free_blocks = free_blocks;
         
+        // Clear existing blocks and populate with vLLM block data
+        info.blocks.clear();
         for (int i = 0; i < num_gpu_blocks; ++i) {
             MemoryBlock block;
             block.block_id = i;

@@ -67,15 +67,32 @@ def parse_vram(data: Dict[str, Any]):
     # Blocks detail
     blocks = data.get('blocks', [])
     if blocks:
-        print(f"\n📦 Memory Blocks ({len(blocks)}):")
-        print(f"  {'ID':<10} {'Address':<18} {'Size':<15} {'Type':<15} {'Allocated':<10}")
-        print("  " + "-" * 68)
-        for b in blocks:
-            print(f"  {b.get('block_id', 0):<10} "
-                  f"0x{b.get('address', 0):016x}  "
-                  f"{format_bytes(b.get('size', 0)):<15} "
-                  f"{b.get('type', 'unknown'):<15} "
-                  f"{'Yes' if b.get('allocated', False) else 'No':<10}")
+        allocated_blocks = [b for b in blocks if b.get('allocated', False)]
+        free_blocks = [b for b in blocks if not b.get('allocated', False)]
+        
+        print(f"\n📦 Memory Blocks ({len(blocks)} total, {len(allocated_blocks)} allocated, {len(free_blocks)} free):")
+        
+        if allocated_blocks:
+            print(f"\n  Allocated Blocks (showing first 20 of {len(allocated_blocks)}):")
+            print(f"    {'ID':<10} {'Size':<15} {'Type':<15}")
+            print("    " + "-" * 40)
+            for b in allocated_blocks[:20]:
+                print(f"    {b.get('block_id', 0):<10} "
+                      f"{format_bytes(b.get('size', 0)):<15} "
+                      f"{b.get('type', 'unknown'):<15}")
+            if len(allocated_blocks) > 20:
+                print(f"    ... and {len(allocated_blocks) - 20} more allocated blocks")
+        
+        if free_blocks:
+            print(f"\n  Free Blocks (showing first 20 of {len(free_blocks)}):")
+            print(f"    {'ID':<10} {'Size':<15} {'Type':<15}")
+            print("    " + "-" * 40)
+            for b in free_blocks[:20]:
+                print(f"    {b.get('block_id', 0):<10} "
+                      f"{format_bytes(b.get('size', 0)):<15} "
+                      f"{b.get('type', 'unknown'):<15}")
+            if len(free_blocks) > 20:
+                print(f"    ... and {len(free_blocks) - 20} more free blocks")
     
     # vLLM Metrics
     vllm_metrics = data.get('vllm_metrics', '')
