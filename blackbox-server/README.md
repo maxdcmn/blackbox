@@ -1,14 +1,7 @@
-### LIBRARIES
+## 1. Make all shellscripts in scripts/ executable
 
-Boost.asio:
-- Just for http.
-- Type shit. Can communicate with vllm server via its /metrics endpoint.
+## 2. Run install_deps.sh
 
-NVML:
-- For the total pre-alloc mem used by vllm and other processes.
+## 3. Run setup.sh
 
-Absell cpp:
-- Generally sick.
-
-Eigen:
-- Math.
+## 4. Follow cmd to execute the binaries to run the monitoring server.
