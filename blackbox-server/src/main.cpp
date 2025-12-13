@@ -109,7 +109,7 @@ VRAMInfo getVRAMUsage() {
     return info;
 }
 
-DetailedVRAMInfo getDetailedVRAMUsage(const std::string& vllm_url = "") {
+DetailedVRAMInfo getDetailedVRAMUsage(const std::string& vllm_metrics = "") {
     DetailedVRAMInfo detailed = {0, 0, 0, 0, {}, {}, {}, 0, 0, 0, 0.0};
     if (!initNVML()) return detailed;
 #ifdef NVML_AVAILABLE
@@ -159,6 +159,10 @@ DetailedVRAMInfo getDetailedVRAMUsage(const std::string& vllm_url = "") {
         ti.state = "active";
         detailed.threads.push_back(ti);
     }
+    
+    if (!vllm_metrics.empty()) {
+        parseVLLMMetrics(vllm_metrics, detailed);
+    }
 #endif
     return detailed;
 }
@@ -174,16 +178,16 @@ std::string createResponse(const VRAMInfo& info) {
     return oss.str();
 }
 
-std::string fetchVLLMMetrics(const std::string& vllm_url = "http://localhost:8000") {
+std::string fetchVLLMEndpoint(const std::string& host, const std::string& port, const std::string& path) {
     try {
         net::io_context ioc;
         tcp::resolver resolver(ioc);
-        auto const results = resolver.resolve("localhost", "8000");
+        auto const results = resolver.resolve(host, port);
         tcp::socket socket(ioc);
         net::connect(socket, results);
         
-        http::request<http::string_body> req{http::verb::get, "/metrics", 11};
-        req.set(http::field::host, "localhost");
+        http::request<http::string_body> req{http::verb::get, path, 11};
+        req.set(http::field::host, host);
         req.set(http::field::user_agent, "blackbox-server");
         
         http::write(socket, req);
@@ -201,6 +205,104 @@ std::string fetchVLLMMetrics(const std::string& vllm_url = "http://localhost:800
     } catch (...) {
     }
     return "";
+}
+
+std::string fetchVLLMMetrics(const std::string& vllm_url = "http://localhost:8000") {
+    return fetchVLLMEndpoint("localhost", "8000", "/metrics");
+}
+
+void parseVLLMMetrics(const std::string& metrics, DetailedVRAMInfo& info) {
+    if (metrics.empty()) return;
+    
+    std::istringstream iss(metrics);
+    std::string line;
+    int num_gpu_blocks = 0;
+    int block_size = 16;
+    double kv_cache_usage = 0.0;
+    int num_requests_running = 0;
+    int num_requests_waiting = 0;
+    
+    while (std::getline(iss, line)) {
+        if (line.find("num_gpu_blocks=") != std::string::npos) {
+            size_t start = line.find("num_gpu_blocks=\"");
+            if (start != std::string::npos) {
+                start += 15;
+                size_t end = line.find("\"", start);
+                if (end != std::string::npos) {
+                    num_gpu_blocks = std::stoi(line.substr(start, end - start));
+                }
+            }
+        }
+        if (line.find("block_size=") != std::string::npos) {
+            size_t start = line.find("block_size=\"");
+            if (start != std::string::npos) {
+                start += 12;
+                size_t end = line.find("\"", start);
+                if (end != std::string::npos) {
+                    block_size = std::stoi(line.substr(start, end - start));
+                }
+            }
+        }
+        if (line.find("kv_cache_usage_perc") != std::string::npos && line.find("}") != std::string::npos) {
+            size_t val_start = line.find_last_of(" ");
+            if (val_start != std::string::npos) {
+                try {
+                    kv_cache_usage = std::stod(line.substr(val_start + 1));
+                } catch (...) {}
+            }
+        }
+        if (line.find("num_requests_running") != std::string::npos && line.find("}") != std::string::npos) {
+            size_t val_start = line.find_last_of(" ");
+            if (val_start != std::string::npos) {
+                try {
+                    num_requests_running = std::stoi(line.substr(val_start + 1));
+                } catch (...) {}
+            }
+        }
+        if (line.find("num_requests_waiting") != std::string::npos && line.find("}") != std::string::npos) {
+            size_t val_start = line.find_last_of(" ");
+            if (val_start != std::string::npos) {
+                try {
+                    num_requests_waiting = std::stoi(line.substr(val_start + 1));
+                } catch (...) {}
+            }
+        }
+    }
+    
+    if (num_gpu_blocks > 0) {
+        unsigned long long block_bytes = (unsigned long long)block_size * 1024;
+        int active_blocks = (int)(num_gpu_blocks * kv_cache_usage / 100.0);
+        int free_blocks = num_gpu_blocks - active_blocks;
+        
+        info.active_blocks = active_blocks;
+        info.free_blocks = free_blocks;
+        
+        for (int i = 0; i < num_gpu_blocks; ++i) {
+            MemoryBlock block;
+            block.block_id = i;
+            block.size = block_bytes;
+            block.address = 0;
+            block.allocated = (i < active_blocks);
+            block.type = "kv_cache";
+            info.blocks.push_back(block);
+        }
+    }
+    
+    for (int i = 0; i < num_requests_running; ++i) {
+        ThreadInfo ti;
+        ti.thread_id = info.threads.size();
+        ti.allocated_bytes = 0;
+        ti.state = "running";
+        info.threads.push_back(ti);
+    }
+    
+    for (int i = 0; i < num_requests_waiting; ++i) {
+        ThreadInfo ti;
+        ti.thread_id = info.threads.size();
+        ti.allocated_bytes = 0;
+        ti.state = "waiting";
+        info.threads.push_back(ti);
+    }
 }
 
 std::string createDetailedResponse(const DetailedVRAMInfo& info, const std::string& vllm_metrics = "") {
@@ -269,8 +371,8 @@ void handleStreamingRequest(tcp::socket& socket) {
     
     while (true) {
         try {
-            DetailedVRAMInfo info = getDetailedVRAMUsage();
             std::string vllm_metrics = fetchVLLMMetrics();
+            DetailedVRAMInfo info = getDetailedVRAMUsage(vllm_metrics);
             std::string json = createDetailedResponse(info, vllm_metrics);
             
             std::ostringstream event;
@@ -301,8 +403,8 @@ void handleRequest(http::request<http::string_body>& req, tcp::socket& socket) {
                 return;
             }
             
-            DetailedVRAMInfo info = getDetailedVRAMUsage();
             std::string vllm_metrics = fetchVLLMMetrics();
+            DetailedVRAMInfo info = getDetailedVRAMUsage(vllm_metrics);
             std::string json = createDetailedResponse(info, vllm_metrics);
             
             http::response<http::string_body> res;
