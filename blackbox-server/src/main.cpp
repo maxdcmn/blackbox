@@ -111,10 +111,9 @@ void shutdownNVML() {
     }
 }
 
-void parseVLLMMetrics(const std::string& metrics, DetailedVRAMInfo& info);
 NsightMetrics getNsightMetrics(unsigned int pid);
 
-// Get detailed VRAM usage combining NVML (system-level) and vLLM metrics (application-level)
+// Get detailed VRAM usage from NVML (system-level)
 // 
 // NVML Limitations (what we CANNOT get):
 // - Per-thread GPU metrics (CUDA threads)
@@ -128,11 +127,7 @@ NsightMetrics getNsightMetrics(unsigned int pid);
 // What we CAN get from NVML:
 // - Total/used/free VRAM (system-level)
 // - Process-level VRAM usage by PID
-// 
-// What we get from vLLM metrics:
-// - KV cache block counts (application-level memory blocks)
-// - Request counts (application-level threads)
-DetailedVRAMInfo getDetailedVRAMUsage(const std::string& vllm_metrics = "") {
+DetailedVRAMInfo getDetailedVRAMUsage() {
     DetailedVRAMInfo detailed = {0, 0, 0, 0, {}, {}, {}, 0, 0, 0, 0.0};
     if (!initNVML()) return detailed;
 #ifdef NVML_AVAILABLE
@@ -189,7 +184,7 @@ DetailedVRAMInfo getDetailedVRAMUsage(const std::string& vllm_metrics = "") {
     // This represents the total memory allocated atomically by all processes
     detailed.atomic_allocations = total_atomic_allocations > 0 ? total_atomic_allocations : detailed.used;
 
-    // Default values (will be overridden by vLLM if available)
+    // Default values
     detailed.active_blocks = detailed.processes.size();
     detailed.free_blocks = 0;
     detailed.fragmentation_ratio = detailed.total > 0 ? 
@@ -204,43 +199,8 @@ DetailedVRAMInfo getDetailedVRAMUsage(const std::string& vllm_metrics = "") {
         ti.state = "active";
         detailed.threads.push_back(ti);
     }
-    
-    // Parse vLLM metrics to populate blocks and update counts
-    // This will use Nsight Compute data if available for more accurate block utilization
-    if (!vllm_metrics.empty()) {
-        parseVLLMMetrics(vllm_metrics, detailed);
-    }
 #endif
     return detailed;
-}
-
-std::string fetchVLLMEndpoint(const std::string& host, const std::string& port, const std::string& path) {
-    try {
-        net::io_context ioc;
-        tcp::resolver resolver(ioc);
-        auto const results = resolver.resolve(host, port);
-        tcp::socket socket(ioc);
-        net::connect(socket, results);
-        
-        http::request<http::string_body> req{http::verb::get, path, 11};
-        req.set(http::field::host, host);
-        req.set(http::field::user_agent, "blackbox-server");
-        
-        http::write(socket, req);
-        
-        beast::flat_buffer buffer;
-        http::response<http::string_body> res;
-        http::read(socket, buffer, res);
-        
-        beast::error_code ec;
-        socket.shutdown(tcp::socket::shutdown_both, ec);
-        
-        if (res.result() == http::status::ok) {
-            return res.body();
-        }
-    } catch (...) {
-    }
-    return "";
 }
 
 std::string fetchVLLMMetrics(const std::string& vllm_url = "http://localhost:8000") {
@@ -651,9 +611,8 @@ void handleStreamingRequest(tcp::socket& socket) {
     
     while (true) {
         try {
-            std::string vllm_metrics = fetchVLLMMetrics();
-            DetailedVRAMInfo info = getDetailedVRAMUsage(vllm_metrics);
-            std::string json = createDetailedResponse(info, vllm_metrics);
+            DetailedVRAMInfo info = getDetailedVRAMUsage();
+            std::string json = createDetailedResponse(info);
             
             std::ostringstream event;
             event << "data: " << json << "\n\n";
@@ -683,9 +642,8 @@ void handleRequest(http::request<http::string_body>& req, tcp::socket& socket) {
                 return;
             }
             
-            std::string vllm_metrics = fetchVLLMMetrics();
-            DetailedVRAMInfo info = getDetailedVRAMUsage(vllm_metrics);
-            std::string json = createDetailedResponse(info, vllm_metrics);
+            DetailedVRAMInfo info = getDetailedVRAMUsage();
+            std::string json = createDetailedResponse(info);
             
             http::response<http::string_body> res;
             res.version(req.version());
