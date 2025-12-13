@@ -1,2 +1,6 @@
 build/
 .env
+.ssh/
+*.pem
+*.pem.pub
+connect.sh
