@@ -218,10 +218,10 @@ void handleRequest(http::request<http::string_body>& req, tcp::socket& socket) {
     res.keep_alive(req.keep_alive());
 
     if (req.method() == http::verb::get && req.target() == "/vram") {
-        VRAMInfo info = getVRAMUsage();
+        DetailedVRAMInfo info = getDetailedVRAMUsage();
         res.result(http::status::ok);
         res.set(http::field::content_type, "application/json");
-        res.body() = createResponse(info);
+        res.body() = createDetailedResponse(info);
     } else {
         res.result(http::status::not_found);
         res.set(http::field::content_type, "text/plain");
