@@ -51,40 +51,41 @@ func ensureMinDimensions(width, height, minW, minH int) (int, int) {
 }
 
 type DataPoint struct {
-	Time    time.Time
-	Queue   int
-	P50     int
-	P95     int
-	TPS     float64
-	Total   int64
-	KVUsed  int
-	KVTotal int
+	Time          time.Time
+	UsedBytes     int64
+	TotalBytes    int64
+	UsedPercent   float64
+	ActiveBlocks  int
+	FreeBlocks    int
+	Fragmentation float64
 }
 
 type DashboardModel struct {
-	config      *config.Config
-	endpoints   []config.Endpoint
-	selected    int
-	client      *client.Client
-	interval    time.Duration
-	timeout     time.Duration
-	width       int
-	height      int
-	last        *model.Snapshot
-	lastErr     error
-	loaded      bool
-	history     []DataPoint
-	quitting    bool
-	creating    bool
-	editing     bool
-	helpActive  bool
-	newName     string
-	inputField  int
-	newURL      string
-	newEp       string
-	newTO       string
-	editOldName string
-	maxTPS      float64
+	config          *config.Config
+	endpoints       []config.Endpoint
+	selected        int
+	client          *client.Client
+	interval        time.Duration
+	timeout         time.Duration
+	width           int
+	height          int
+	last            *model.Snapshot
+	lastErr         error
+	loaded          bool
+	history         []DataPoint
+	quitting        bool
+	creating        bool
+	editing         bool
+	helpActive      bool
+	newName         string
+	inputField      int
+	newURL          string
+	newEp           string
+	newTO           string
+	editOldName     string
+	maxTPS          float64
+	metricsScroll   int
+	endpointsScroll int
 }
 
 func NewDashboard(cfg *config.Config, interval, timeout time.Duration) *DashboardModel {
@@ -174,14 +175,13 @@ func (m *DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil && msg.s != nil {
 			m.last = msg.s
 			m.history = append(m.history, DataPoint{
-				Time:    time.Now(),
-				Queue:   msg.s.Requests.QueueLen,
-				P50:     msg.s.Requests.P50ms,
-				P95:     msg.s.Requests.P95ms,
-				TPS:     msg.s.Tokens.TPS,
-				Total:   msg.s.Tokens.Total,
-				KVUsed:  msg.s.KV.UsedMB,
-				KVTotal: msg.s.KV.CapacityMB,
+				Time:          time.Now(),
+				UsedBytes:     msg.s.UsedBytes,
+				TotalBytes:    msg.s.TotalBytes,
+				UsedPercent:   msg.s.UsedPercent,
+				ActiveBlocks:  msg.s.ActiveBlocks,
+				FreeBlocks:    msg.s.FreeBlocks,
+				Fragmentation: msg.s.FragmentationRatio,
 			})
 			if len(m.history) > maxHistorySize {
 				m.history = m.history[1:]
@@ -198,20 +198,37 @@ func (m *DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.helpActive = !m.helpActive
 			return m, nil
 		case "j", "down":
-			if m.selected < len(m.endpoints)-1 {
-				m.selectEndpoint(m.selected + 1)
-				return m, m.Init()
+			if !m.creating && !m.editing && !m.helpActive {
+				if m.last != nil {
+					totalRows := 5 + len(m.last.Processes) + len(m.last.Threads)
+					sizes := calculateContainerSizes(m.width, m.height)
+					maxVisibleRows := sizes.MetricsGrid.Height - 2
+					if totalRows > maxVisibleRows && m.metricsScroll < totalRows-maxVisibleRows {
+						m.metricsScroll++
+						return m, nil
+					}
+				}
+				if m.selected < len(m.endpoints)-1 {
+					m.selectEndpoint(m.selected + 1)
+					return m, m.Init()
+				}
 			}
 		case "k", "up":
-			if m.selected > 0 {
-				m.selectEndpoint(m.selected - 1)
-				return m, m.Init()
+			if !m.creating && !m.editing && !m.helpActive {
+				if m.metricsScroll > 0 {
+					m.metricsScroll--
+					return m, nil
+				}
+				if m.selected > 0 {
+					m.selectEndpoint(m.selected - 1)
+					return m, m.Init()
+				}
 			}
 		case "n":
 			m.creating = true
 			m.newName = ""
-			m.newURL = "http://127.0.0.1:8001"
-			m.newEp = "/v1/snapshot"
+			m.newURL = "http://127.0.0.1:8080"
+			m.newEp = "/vram"
 			m.newTO = "2s"
 			m.inputField = 0
 			return m, nil
@@ -325,14 +342,15 @@ func (m *DashboardModel) View() string {
 	}
 
 	sizes := calculateContainerSizes(m.width, m.height)
-	topBar := m.renderTopBar(m.width)
 	endpointsPanel := m.renderEndpointsPanel(sizes.Endpoints.Width, sizes.Endpoints.Height)
+	metricsGrid := m.renderMetricsGrid(sizes.MetricsGrid.Width, sizes.MetricsGrid.Height)
 	dataPanel := m.renderDataPanel(sizes.Data.Width, sizes.Data.Height)
 	statusBar := m.renderStatusBar(sizes.StatusBar.Width, sizes.StatusBar.Height)
 
+	leftSide := lipgloss.JoinVertical(lipgloss.Left, endpointsPanel, metricsGrid)
 	separator := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("│")
-	main := lipgloss.JoinHorizontal(lipgloss.Left, endpointsPanel, separator, dataPanel)
-	content := lipgloss.JoinVertical(lipgloss.Left, topBar, main, statusBar)
+	main := lipgloss.JoinHorizontal(lipgloss.Left, leftSide, separator, dataPanel)
+	content := lipgloss.JoinVertical(lipgloss.Left, main, statusBar)
 
 	if m.helpActive {
 		helpText := `Keyboard Shortcuts
@@ -343,7 +361,6 @@ n         - Create new endpoint
 e         - Edit selected endpoint
 d         - Delete selected endpoint
 r         - Refresh data
-GitHub:   Click the GitHub link in the status bar
 Press any key to close`
 		popup := popupStyle.Width(50).Render(helpText)
 		popup = lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, popup)
@@ -351,6 +368,121 @@ Press any key to close`
 	}
 
 	return content
+}
+
+func (m *DashboardModel) renderMetricsGrid(width, height int) string {
+	width, height = ensureMinDimensions(width, height, 20, 5)
+
+	gridStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("62")).
+		Padding(1, 1).
+		Background(lipgloss.Color("0")).
+		Width(width).
+		Height(height)
+
+	innerHeight := height - 2
+	innerWidth := width - 4
+
+	var rows []string
+	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("141")).Bold(true)
+	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("250"))
+
+	if m.last == nil || m.lastErr != nil {
+		rows = []string{
+			fmt.Sprintf("%s %s", labelStyle.Render("VRAM Usage:"), valueStyle.Render("--/-- GB (--%%)")),
+			fmt.Sprintf("%s %s", labelStyle.Render("Memory Blocks:"), valueStyle.Render("--/-- (Total: --)")),
+			fmt.Sprintf("%s %s", labelStyle.Render("Processes:"), valueStyle.Render("-- (none)")),
+			fmt.Sprintf("%s %s", labelStyle.Render("Fragmentation:"), valueStyle.Render("--%% (Ratio: --)")),
+		}
+	} else {
+		usedGB := float64(m.last.UsedBytes) / (1024 * 1024 * 1024)
+		totalGB := float64(m.last.TotalBytes) / (1024 * 1024 * 1024)
+		freeGB := float64(m.last.FreeBytes) / (1024 * 1024 * 1024)
+		processCount := len(m.last.Processes)
+		activeBlocks := m.last.ActiveBlocks
+		freeBlocks := m.last.FreeBlocks
+		fragmentation := m.last.FragmentationRatio * 100.0
+
+		rows = []string{
+			fmt.Sprintf("%s %s/%s GB %s",
+				labelStyle.Render("VRAM Usage:"),
+				styleColor(getPercentColor(m.last.UsedPercent)).Render(fmt.Sprintf("%.2f", usedGB)),
+				styleColor("250").Render(fmt.Sprintf("%.2f", totalGB)),
+				styleColor(getPercentColor(m.last.UsedPercent)).Render(fmt.Sprintf("(%.1f%%)", m.last.UsedPercent))),
+			fmt.Sprintf("%s %s GB",
+				labelStyle.Render("Free VRAM:"),
+				styleColor("46").Render(fmt.Sprintf("%.2f", freeGB))),
+			fmt.Sprintf("%s %s/%s %s",
+				labelStyle.Render("Memory Blocks:"),
+				styleColor("214").Render(fmt.Sprintf("%d", activeBlocks)),
+				styleColor("220").Render(fmt.Sprintf("%d", freeBlocks)),
+				styleColor("245").Render(fmt.Sprintf("(Total: %d)", activeBlocks+freeBlocks))),
+			fmt.Sprintf("%s %s",
+				labelStyle.Render("Fragmentation:"),
+				styleColor(getPercentColor(fragmentation)).Render(fmt.Sprintf("%.2f%% (Ratio: %.4f)", fragmentation, m.last.FragmentationRatio))),
+			fmt.Sprintf("%s %s",
+				labelStyle.Render("Processes:"),
+				styleColor("39").Render(fmt.Sprintf("%d", processCount))),
+		}
+
+		for i, proc := range m.last.Processes {
+			if i >= 5 {
+				break
+			}
+			procUsedGB := float64(proc.UsedBytes) / (1024 * 1024 * 1024)
+			procName := proc.Name
+			if len(procName) > 20 {
+				procName = procName[:20] + "..."
+			}
+			rows = append(rows, fmt.Sprintf("%s %s %s",
+				labelStyle.Render(fmt.Sprintf("  PID %d:", proc.PID)),
+				styleColor("245").Render(procName),
+				styleColor("214").Render(fmt.Sprintf("%.2f GB", procUsedGB))))
+		}
+
+		if len(m.last.Threads) > 0 {
+			rows = append(rows, fmt.Sprintf("%s %s",
+				labelStyle.Render("Threads:"),
+				styleColor("39").Render(fmt.Sprintf("%d", len(m.last.Threads)))))
+			for i, thread := range m.last.Threads {
+				if i >= 3 {
+					break
+				}
+				threadGB := float64(thread.AllocatedBytes) / (1024 * 1024 * 1024)
+				rows = append(rows, fmt.Sprintf("%s %s %s",
+					labelStyle.Render(fmt.Sprintf("  Thread %d:", thread.ThreadID)),
+					styleColor("245").Render(thread.State),
+					styleColor("214").Render(fmt.Sprintf("%.2f GB", threadGB))))
+			}
+		}
+	}
+
+	maxVisibleRows := innerHeight
+	if maxVisibleRows < 1 {
+		maxVisibleRows = 1
+	}
+	totalRows := len(rows)
+	if m.metricsScroll < 0 {
+		m.metricsScroll = 0
+	}
+	if m.metricsScroll > totalRows-maxVisibleRows {
+		m.metricsScroll = max(0, totalRows-maxVisibleRows)
+	}
+
+	visibleRows := rows[m.metricsScroll:]
+	if len(visibleRows) > maxVisibleRows {
+		visibleRows = visibleRows[:maxVisibleRows]
+	}
+
+	rowStyle := lipgloss.NewStyle().Width(innerWidth).Align(lipgloss.Left)
+	var gridRows []string
+	for _, row := range visibleRows {
+		gridRows = append(gridRows, rowStyle.Render(row))
+	}
+
+	grid := strings.Join(gridRows, "\n")
+	return gridStyle.Render(grid)
 }
 
 func (m *DashboardModel) renderTopBar(width int) string {
@@ -364,32 +496,27 @@ func (m *DashboardModel) renderTopBar(width int) string {
 		Height(1)
 
 	if m.last == nil || m.lastErr != nil {
-		return topBarStyle.Render("GPU: N/A  Model: N/A  Queue: --  p50: --ms  p95: --ms  TPS: --  Total: --  KV: --/-- MB")
+		return topBarStyle.Render("VRAM: N/A  Used: --/-- GB  Free: -- GB  Processes: --  Blocks: --/--  Fragmentation: --%")
 	}
 
-	queue := m.last.Requests.QueueLen
-	p50 := m.last.Requests.P50ms
-	p95 := m.last.Requests.P95ms
-	tps := m.last.Tokens.TPS
-	total := formatLargeNumber(m.last.Tokens.Total)
-	kvUsed := m.last.KV.UsedMB
-	kvTotal := m.last.KV.CapacityMB
-	kvPercent := 0.0
-	if kvTotal > 0 {
-		kvPercent = (float64(kvUsed) / float64(kvTotal)) * 100.0
-	}
+	usedGB := float64(m.last.UsedBytes) / (1024 * 1024 * 1024)
+	totalGB := float64(m.last.TotalBytes) / (1024 * 1024 * 1024)
+	freeGB := float64(m.last.FreeBytes) / (1024 * 1024 * 1024)
+	processCount := len(m.last.Processes)
+	activeBlocks := m.last.ActiveBlocks
+	freeBlocks := m.last.FreeBlocks
+	fragmentation := m.last.FragmentationRatio * 100.0
 
 	valueStyle := styleColor("250").Bold(true)
-	info := fmt.Sprintf("GPU: %s  Model: %s  Queue: %s  p50: %s  p95: %s  TPS: %s  Total: %s  KV: %s MB (%.1f%%)",
-		valueStyle.Render("N/A"),
-		valueStyle.Render("N/A"),
-		styleColor("39").Render(fmt.Sprintf("%d", queue)),
-		styleColor("51").Render(fmt.Sprintf("%d", p50)),
-		styleColor("45").Render(fmt.Sprintf("%d", p95)),
-		styleColor("220").Render(fmt.Sprintf("%.1f", tps)),
-		styleColor("214").Render(total),
-		styleColor(getPercentColor(kvPercent)).Render(fmt.Sprintf("%d/%d", kvUsed, kvTotal)),
-		kvPercent)
+	info := fmt.Sprintf("VRAM: %s  Used: %s/%s GB  Free: %s GB  Processes: %s  Blocks: %s/%s  Fragmentation: %s%%",
+		valueStyle.Render("GPU"),
+		styleColor(getPercentColor(m.last.UsedPercent)).Render(fmt.Sprintf("%.2f", usedGB)),
+		styleColor("250").Render(fmt.Sprintf("%.2f", totalGB)),
+		styleColor("46").Render(fmt.Sprintf("%.2f", freeGB)),
+		styleColor("39").Render(fmt.Sprintf("%d", processCount)),
+		styleColor("214").Render(fmt.Sprintf("%d", activeBlocks)),
+		styleColor("220").Render(fmt.Sprintf("%d", freeBlocks)),
+		styleColor(getPercentColor(fragmentation)).Render(fmt.Sprintf("%.2f", fragmentation)))
 
 	return topBarStyle.Render(info)
 }
@@ -404,11 +531,37 @@ func (m *DashboardModel) renderEndpointsPanel(width, height int) string {
 	b.WriteString(header)
 	b.WriteString("\n")
 
+	innerHeight := height - 3
+	if innerHeight < 1 {
+		innerHeight = 1
+	}
+
+	totalEndpoints := len(m.endpoints)
+	if m.endpointsScroll < 0 {
+		m.endpointsScroll = 0
+	}
+
+	if m.selected < m.endpointsScroll {
+		m.endpointsScroll = m.selected
+	} else if m.selected >= m.endpointsScroll+innerHeight {
+		m.endpointsScroll = m.selected - innerHeight + 1
+	}
+
+	if m.endpointsScroll > totalEndpoints-innerHeight {
+		m.endpointsScroll = max(0, totalEndpoints-innerHeight)
+	}
+
+	visibleEndpoints := m.endpoints[m.endpointsScroll:]
+	if len(visibleEndpoints) > innerHeight {
+		visibleEndpoints = visibleEndpoints[:innerHeight]
+	}
+
 	availableWidth := max(0, width-4)
-	for i, ep := range m.endpoints {
+	for i, ep := range visibleEndpoints {
+		actualIndex := m.endpointsScroll + i
 		name := truncateString(ep.Name, max(1, availableWidth))
 
-		if i == m.selected {
+		if actualIndex == m.selected {
 			selectedStyle := lipgloss.NewStyle().
 				Background(lipgloss.Color("63")).
 				Foreground(lipgloss.Color("231")).
@@ -450,16 +603,18 @@ func (m *DashboardModel) renderDataPanel(width, height int) string {
 		boxHeight = 5
 	}
 
-	requestsContent := m.renderMetricContent("Requests", boxHeight, width, m.last.Requests.QueueLen, m.last.Requests.P50ms, m.last.Requests.P95ms, m.getQueueHistory(), blueColor, 0)
-	tokensContent := m.renderMetricContent("Tokens", boxHeight, width, int(m.last.Tokens.TPS), int(m.last.Tokens.Total), 0, m.getTPSHistory(), yellowColor, m.maxTPS)
-	kvContent := m.renderMetricContent("KV Cache", boxHeight, width, m.last.KV.UsedMB, m.last.KV.CapacityMB, 0, m.getKVHistory(), redColor, 100.0)
+	usedMB := int(m.last.UsedBytes / (1024 * 1024))
+	totalMB := int(m.last.TotalBytes / (1024 * 1024))
+	vramContent := m.renderMetricContent("VRAM Usage", boxHeight, width, usedMB, totalMB, 0, m.getVRAMHistory(), redColor, 100.0)
+	blocksContent := m.renderMetricContent("Memory Blocks", boxHeight, width, m.last.ActiveBlocks, m.last.FreeBlocks, 0, m.getBlocksHistory(), blueColor, 0)
+	fragmentationContent := m.renderMetricContent("Fragmentation", boxHeight, width, int(m.last.FragmentationRatio*100), 100, 0, m.getFragmentationHistory(), yellowColor, 100.0)
 
-	requestsLines := strings.TrimRight(requestsContent, "\n")
-	tokensLines := strings.TrimRight(tokensContent, "\n")
-	kvLines := strings.TrimRight(kvContent, "\n")
+	vramLines := strings.TrimRight(vramContent, "\n")
+	blocksLines := strings.TrimRight(blocksContent, "\n")
+	fragmentationLines := strings.TrimRight(fragmentationContent, "\n")
 
 	emptyLine := lipgloss.NewStyle().Background(lipgloss.Color("0")).Render(strings.Repeat(" ", max(0, width-2)))
-	combined := strings.Join([]string{requestsLines, emptyLine, tokensLines, emptyLine, kvLines}, "\n")
+	combined := strings.Join([]string{vramLines, emptyLine, blocksLines, emptyLine, fragmentationLines}, "\n")
 
 	return metricBoxStyle.Width(width).Height(height).Render(combined)
 }
@@ -728,21 +883,21 @@ func (m *DashboardModel) getHistory(extractor func(DataPoint) float64) []float64
 	return values
 }
 
-func (m *DashboardModel) getQueueHistory() []float64 {
-	return m.getHistory(func(dp DataPoint) float64 { return float64(dp.Queue) })
-}
-
-func (m *DashboardModel) getTPSHistory() []float64 {
-	return m.getHistory(func(dp DataPoint) float64 { return dp.TPS })
-}
-
-func (m *DashboardModel) getKVHistory() []float64 {
+func (m *DashboardModel) getVRAMHistory() []float64 {
 	return m.getHistory(func(dp DataPoint) float64 {
-		if dp.KVTotal > 0 {
-			return (float64(dp.KVUsed) / float64(dp.KVTotal)) * 100.0
+		if dp.TotalBytes > 0 {
+			return (float64(dp.UsedBytes) / float64(dp.TotalBytes)) * 100.0
 		}
 		return 0
 	})
+}
+
+func (m *DashboardModel) getBlocksHistory() []float64 {
+	return m.getHistory(func(dp DataPoint) float64 { return float64(dp.ActiveBlocks) })
+}
+
+func (m *DashboardModel) getFragmentationHistory() []float64 {
+	return m.getHistory(func(dp DataPoint) float64 { return dp.Fragmentation * 100.0 })
 }
 
 func (m *DashboardModel) renderStatusBar(width, height int) string {
@@ -809,22 +964,27 @@ func (m *DashboardModel) getFieldValue() *string {
 }
 
 func (m *DashboardModel) formatMetricValues(title string, val1, val2, val3 int) string {
-	if val3 > 0 {
-		return fmt.Sprintf("%s  %s  %s",
-			styleColor("39").Render(fmt.Sprintf("Queue: %d", val1)),
-			styleColor("51").Render(fmt.Sprintf("p50: %dms", val2)),
-			styleColor("45").Render(fmt.Sprintf("p95: %dms", val3)))
-	} else if title == "Tokens" {
+	if title == "VRAM Usage" {
+		percent := 0.0
+		if val2 > 0 {
+			percent = (float64(val1) / float64(val2)) * 100.0
+		}
+		return fmt.Sprintf("%s %s",
+			styleColor(getPercentColor(percent)).Render(fmt.Sprintf("%d/%d MB", val1, val2)),
+			styleColor(getPercentColor(percent)).Render(fmt.Sprintf("(%.1f%%)", percent)))
+	} else if title == "Memory Blocks" {
 		return fmt.Sprintf("%s  %s",
-			styleColor("220").Render(fmt.Sprintf("TPS: %.1f", float64(val1))),
-			styleColor("214").Render(fmt.Sprintf("Total: %s", formatLargeNumber(int64(val2)))))
+			styleColor("39").Render(fmt.Sprintf("Active: %d", val1)),
+			styleColor("46").Render(fmt.Sprintf("Free: %d", val2)))
+	} else if title == "Fragmentation" {
+		return styleColor(getPercentColor(float64(val1))).Render(fmt.Sprintf("%.2f%%", float64(val1)))
 	} else {
 		percent := 0.0
 		if val2 > 0 {
 			percent = (float64(val1) / float64(val2)) * 100.0
 		}
 		return fmt.Sprintf("%s %s",
-			styleColor("196").Render(fmt.Sprintf("%d/%d MB", val1, val2)),
+			styleColor("196").Render(fmt.Sprintf("%d/%d", val1, val2)),
 			styleColor("196").Render(fmt.Sprintf("(%.1f%%)", percent)))
 	}
 }

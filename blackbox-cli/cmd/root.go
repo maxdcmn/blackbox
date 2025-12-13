@@ -53,8 +53,8 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&rf.baseURL, "url", "http://127.0.0.1:8001", "blackbox-server base URL")
-	rootCmd.PersistentFlags().StringVar(&rf.endpoint, "endpoint", "/v1/snapshot", "snapshot endpoint path")
+	rootCmd.PersistentFlags().StringVar(&rf.baseURL, "url", "http://127.0.0.1:8080", "blackbox-server base URL")
+	rootCmd.PersistentFlags().StringVar(&rf.endpoint, "endpoint", "/vram", "VRAM endpoint path")
 	rootCmd.PersistentFlags().StringVar(&rf.timeout, "timeout", "2s", "HTTP timeout (e.g. 2s, 500ms)")
 
 	rootCmd.AddCommand(statCmd)

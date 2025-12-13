@@ -3,7 +3,6 @@ package client
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -40,18 +39,12 @@ func (c *Client) Snapshot(ctx context.Context) (*model.Snapshot, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, errors.New(fmt.Sprintf("server returned %s", resp.Status))
+		return nil, fmt.Errorf("server returned %s", resp.Status)
 	}
 
 	var snap model.Snapshot
 	if err := json.NewDecoder(resp.Body).Decode(&snap); err != nil {
 		return nil, err
-	}
-
-	// tolerate missing version in early prototypes
-	if snap.TS == 0 {
-		// don't hard-fail; just allow snapshot, but give signal
-		// caller can display it
 	}
 
 	return &snap, nil
