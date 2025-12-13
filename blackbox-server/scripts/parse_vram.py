@@ -16,7 +16,14 @@ def parse_vram(data: Dict[str, Any], clear_screen: bool = False):
     if clear_screen:
         import os
         os.system('clear' if os.name != 'nt' else 'cls')
-    
+
+    print("===================================================")
+
+    print("KEYS OF JSON OBJECT:")
+    print(data.keys())
+
+    print("===================================================")
+
     import datetime
     print("=" * 60)
     print(f"VRAM Monitor - {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
