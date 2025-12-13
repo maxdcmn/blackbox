@@ -139,7 +139,7 @@ def parse_vram(data: Dict[str, Any], clear_screen: bool = False):
     
     print("\n" + "=" * 60)
 
-def fetch_vram_stream(url: str = "http://localhost:8080/vram"):
+def fetch_vram_stream(url: str = "http://localhost:6767/vram"):
     import time
     try:
         base_url = url.rstrip('/').replace('/stream', '')
@@ -158,7 +158,7 @@ def fetch_vram_stream(url: str = "http://localhost:8080/vram"):
     except KeyboardInterrupt:
         pass
 
-def fetch_vram(url: str = "http://localhost:8080/vram") -> Optional[Dict[str, Any]]:
+def fetch_vram(url: str = "http://localhost:6767/vram") -> Optional[Dict[str, Any]]:
     try:
         response = requests.get(url, timeout=60)
         response.raise_for_status()
@@ -171,8 +171,8 @@ def main():
     parser = argparse.ArgumentParser(description='Parse VRAM monitor JSON output')
     parser.add_argument('input', nargs='?', type=str, default=None,
                        help='JSON input file (default: fetch from server)')
-    parser.add_argument('--url', default='http://localhost:8080/vram',
-                       help='Server URL (default: http://localhost:8080/vram)')
+    parser.add_argument('--url', default='http://localhost:6767/vram',
+                       help='Server URL (default: http://localhost:6767/vram)')
     parser.add_argument('--stream', action='store_true',
                        help='Stream updates continuously')
     

@@ -735,7 +735,7 @@ void acceptConnections(tcp::acceptor& acceptor) {
 
 int main(int argc, char* argv[]) {
     try {
-        int port = 8080;
+        int port = 6767;
         if (argc > 1) port = std::stoi(argv[1]);
 
         net::io_context ioc;
