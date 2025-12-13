@@ -3,4 +3,6 @@ build/
 .ssh/
 *.pem
 *.pem.pub
+*_key
+*_key.pub
 connect.sh
