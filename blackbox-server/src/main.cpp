@@ -32,7 +32,8 @@ struct MemoryBlock {
     unsigned long long size;
     std::string type;  // "kv_cache", "activation", "weight", "other"
     int block_id;
-    bool allocated;
+    bool allocated;  // Whether block is allocated/reserved
+    bool utilized;   // Whether block is actively being used (has data)
 };
 
 struct ProcessMemory {
@@ -363,7 +364,13 @@ void parseVLLMMetrics(const std::string& metrics, DetailedVRAMInfo& info) {
                 try {
                     std::string usage_str = line.substr(val_start + 1);
                     kv_cache_usage = std::stod(usage_str);
-                    std::cout << "[DEBUG] Parsed kv_cache_usage=" << kv_cache_usage << " from string: " << usage_str << std::endl;
+                    // vLLM returns kv_cache_usage_perc as 0-1 (not 0-100), convert to percentage
+                    if (kv_cache_usage > 0.0 && kv_cache_usage <= 1.0) {
+                        kv_cache_usage = kv_cache_usage * 100.0;
+                        std::cout << "[DEBUG] Parsed kv_cache_usage (converted from 0-1 to 0-100): " << kv_cache_usage << "%" << std::endl;
+                    } else {
+                        std::cout << "[DEBUG] Parsed kv_cache_usage=" << kv_cache_usage << " from string: " << usage_str << std::endl;
+                    }
                 } catch (const std::exception& e) {
                     std::cout << "[DEBUG] Failed to parse kv_cache_usage: " << e.what() << std::endl;
                 }
@@ -398,33 +405,44 @@ void parseVLLMMetrics(const std::string& metrics, DetailedVRAMInfo& info) {
     if (num_gpu_blocks > 0) {
         unsigned long long block_bytes = (unsigned long long)block_size * 1024;
         
-        // Calculate active blocks based on kv_cache_usage or fallback to memory usage
-        int active_blocks;
+        // num_gpu_blocks = total allocated blocks (reserved for KV cache)
+        int allocated_blocks = num_gpu_blocks;
+        
+        // Calculate utilized blocks (blocks actually being used)
+        // kv_cache_usage_perc is percentage of allocated blocks that are utilized
+        int utilized_blocks = 0;
         if (kv_cache_usage > 0.0) {
-            active_blocks = (int)(num_gpu_blocks * kv_cache_usage / 100.0);
+            double utilization_ratio = kv_cache_usage / 100.0;
+            utilized_blocks = (int)(num_gpu_blocks * utilization_ratio);
+            // Ensure at least 1 block if there's any usage (avoid rounding to 0)
+            if (utilized_blocks == 0 && kv_cache_usage > 0.0 && num_gpu_blocks > 0) {
+                utilized_blocks = 1;  // At least 1 block is utilized if usage > 0
+            }
             std::cout << "[DEBUG] Using kv_cache_usage: " << kv_cache_usage 
-                      << "%, calculated active_blocks=" << active_blocks << std::endl;
+                      << "%, calculated utilized_blocks=" << utilized_blocks 
+                      << " out of allocated_blocks=" << allocated_blocks << std::endl;
         } else {
             // Fallback: estimate based on used memory vs total blocks
-            // Assume blocks are used proportionally to memory usage
             if (info.total > 0) {
                 double mem_usage_ratio = (double)info.used / info.total;
-                active_blocks = (int)(num_gpu_blocks * mem_usage_ratio);
+                utilized_blocks = (int)(num_gpu_blocks * mem_usage_ratio);
                 std::cout << "[DEBUG] Using memory usage fallback: mem_usage_ratio=" << mem_usage_ratio 
-                          << ", calculated active_blocks=" << active_blocks << std::endl;
+                          << ", calculated utilized_blocks=" << utilized_blocks << std::endl;
             } else {
-                active_blocks = 0;
-                std::cout << "[DEBUG] info.total is 0, setting active_blocks=0" << std::endl;
+                utilized_blocks = 0;
+                std::cout << "[DEBUG] info.total is 0, setting utilized_blocks=0" << std::endl;
             }
         }
-        int free_blocks = num_gpu_blocks - active_blocks;
         
-        std::cout << "[DEBUG] Final block counts: active_blocks=" << active_blocks 
-                  << ", free_blocks=" << free_blocks 
-                  << ", num_gpu_blocks=" << num_gpu_blocks << std::endl;
+        // Free blocks = allocated but not utilized
+        int free_blocks = allocated_blocks - utilized_blocks;
         
-        // Override with vLLM block data
-        info.active_blocks = active_blocks;
+        std::cout << "[DEBUG] Final block counts: allocated_blocks=" << allocated_blocks 
+                  << ", utilized_blocks=" << utilized_blocks
+                  << ", free_blocks=" << free_blocks << std::endl;
+        
+        // active_blocks = utilized blocks (actually being used)
+        info.active_blocks = utilized_blocks;
         info.free_blocks = free_blocks;
         
         // Clear existing blocks and populate with vLLM block data
@@ -434,7 +452,8 @@ void parseVLLMMetrics(const std::string& metrics, DetailedVRAMInfo& info) {
             block.block_id = i;
             block.size = block_bytes;
             block.address = 0;
-            block.allocated = (i < active_blocks);
+            block.allocated = true;  // All blocks in num_gpu_blocks are allocated
+            block.utilized = (i < utilized_blocks);  // Only first N blocks are actually utilized
             block.type = "kv_cache";
             info.blocks.push_back(block);
         }
@@ -561,7 +580,8 @@ std::string createDetailedResponse(const DetailedVRAMInfo& info, const std::stri
             << R"(,"address":)" << info.blocks[i].address
             << R"(,"size":)" << info.blocks[i].size
             << R"(,"type":")" << info.blocks[i].type << R"(")"
-            << R"(,"allocated":)" << (info.blocks[i].allocated ? "true" : "false") << "}";
+            << R"(,"allocated":)" << (info.blocks[i].allocated ? "true" : "false")
+            << R"(,"utilized":)" << (info.blocks[i].utilized ? "true" : "false") << "}";
     }
     oss << "]";
     
@@ -671,13 +691,25 @@ void handleRequest(http::request<http::string_body>& req, tcp::socket& socket) {
 
 void acceptConnections(tcp::acceptor& acceptor) {
     while (true) {
-        tcp::socket socket(acceptor.get_executor());
-        acceptor.accept(socket);
-        
-        beast::flat_buffer buffer;
-        http::request<http::string_body> req;
-        http::read(socket, buffer, req);
-        handleRequest(req, socket);
+        try {
+            tcp::socket socket(acceptor.get_executor());
+            acceptor.accept(socket);
+            
+            beast::flat_buffer buffer;
+            http::request<http::string_body> req;
+            http::read(socket, buffer, req);
+            handleRequest(req, socket);
+        } catch (const boost::system::system_error& e) {
+            // Handle broken pipe and other connection errors gracefully
+            if (e.code() == boost::asio::error::broken_pipe || 
+                e.code() == boost::asio::error::connection_reset) {
+                // Client disconnected, continue to next connection
+                continue;
+            }
+            std::cerr << "Connection error: " << e.what() << std::endl;
+        } catch (const std::exception& e) {
+            std::cerr << "Error handling request: " << e.what() << std::endl;
+        }
     }
 }
 
