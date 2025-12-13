@@ -2,7 +2,9 @@
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 #include <boost/beast/version.hpp>
+#ifdef NVML_AVAILABLE
 #include <nvml.h>
+#endif
 #include <sstream>
 #include <iomanip>
 #include <iostream>
