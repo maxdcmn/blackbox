@@ -4,6 +4,10 @@ project(blackbox-server)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Build for compatibility with older systems
+# Link libstdc++ statically to avoid GLIBC version issues
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
+
 # Use old FindBoost module (more compatible)
 set(Boost_NO_BOOST_CMAKE ON)
 
