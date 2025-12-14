@@ -28,19 +28,47 @@ HTTP/1.1 200 OK
 Content-Type: application/json
 
 {
-  "total_bytes": 34359738368,
-  "used_bytes": 8589934592,
-  "free_bytes": 25769803776,
-  "reserved_bytes": 8589934592,
-  "used_percent": 25.00,
-  "active_blocks": 1,
-  "free_blocks": 0,
-  "atomic_allocations_bytes": 8589934592,
-  "fragmentation_ratio": 0.25,
-  "processes": [...],
-  "threads": [...],
-  "blocks": [...],
-  "nsight_metrics": {...}
+  "total_bytes": 42949672960,
+  "used_bytes": 34561064960,
+  "free_bytes": 8388608000,
+  "reserved_bytes": 34561064960,
+  "used_percent": 80.45,
+  "active_blocks": 14401,
+  "utilized_blocks": 0,
+  "free_blocks": 14401,
+  "atomic_allocations_bytes": 31299958784,
+  "fragmentation_ratio": 0.8045,
+  "processes": [
+    {
+      "pid": 131963,
+      "name": "VLLM::EngineCor",
+      "used_bytes": 31299958784,
+      "reserved_bytes": 31299958784
+    }
+  ],
+  "threads": [],
+  "blocks": [
+    {
+      "block_id": 0,
+      "address": 0,
+      "size": 2173952,
+      "type": "kv_cache",
+      "allocated": true,
+      "utilized": false
+    }
+  ],
+  "nsight_metrics": {
+    "131963": {
+      "atomic_operations": 0,
+      "threads_per_block": 0,
+      "occupancy": 0.0,
+      "active_blocks": 0,
+      "memory_throughput": 0,
+      "dram_read_bytes": 0,
+      "dram_write_bytes": 0,
+      "available": false
+    }
+  }
 }
 ```
 
@@ -55,12 +83,13 @@ Content-Type: application/json
 | `free_bytes` | integer | Free GPU memory |
 | `reserved_bytes` | integer | Reserved GPU memory |
 | `used_percent` | float | Memory usage percentage (0-100) |
-| `active_blocks` | integer | Number of active memory blocks |
-| `free_blocks` | integer | Number of free memory blocks |
+| `active_blocks` | integer | Total allocated KV cache blocks (from vLLM) |
+| `utilized_blocks` | integer | Blocks actively storing data (calculated from vLLM's `kv_cache_usage_perc`) |
+| `free_blocks` | integer | Allocated but unused blocks (calculated: `active_blocks - utilized_blocks`) |
 | `atomic_allocations_bytes` | integer | Total atomic memory allocations |
 | `fragmentation_ratio` | float | Memory fragmentation ratio (0-1) |
 | `processes` | array | GPU processes array |
-| `threads` | array | Thread information array |
+| `threads` | array | Empty array (removed - was redundant mapping of processes) |
 | `blocks` | array | Memory block details array |
 | `nsight_metrics` | object | Nsight Compute metrics per PID |
 
@@ -113,12 +142,12 @@ Content-Type: application/json
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `block_id` | integer | Block identifier |
-| `address` | integer | Memory address (0 if unknown) |
-| `size` | integer | Block size in bytes |
-| `type` | string | Block type ("kv_cache", "activation", "weight", "other") |
-| `allocated` | boolean | Whether block is allocated |
-| `utilized` | boolean | Whether block is actively used |
+| `block_id` | integer | Block identifier (0 to `active_blocks-1`) |
+| `address` | integer | Memory address (0 if unknown, vLLM doesn't expose addresses) |
+| `size` | integer | Block size in bytes (calculated from NVML process memory / num_blocks) |
+| `type` | string | Block type ("kv_cache" for vLLM blocks) |
+| `allocated` | boolean | Whether block is allocated (always `true` for vLLM blocks) |
+| `utilized` | boolean | Whether block is actively storing data (from vLLM's `kv_cache_usage_perc`) |
 
 #### Nsight Metrics Object
 
@@ -141,19 +170,33 @@ Key: Process ID (string)
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `atomic_operations` | integer | Count of atomic operations |
-| `threads_per_block` | integer | CUDA threads per block |
-| `occupancy` | float | GPU occupancy percentage |
-| `active_blocks` | integer | Active CUDA blocks |
-| `memory_throughput` | integer | Memory throughput (bytes/sec) |
-| `dram_read_bytes` | integer | DRAM read bytes |
-| `dram_write_bytes` | integer | DRAM write bytes |
-| `available` | boolean | Whether metrics are available |
+| `atomic_operations` | integer | Count of atomic operations (from Nsight Compute) |
+| `threads_per_block` | integer | CUDA threads per block (from Nsight Compute) |
+| `occupancy` | float | GPU occupancy percentage (from Nsight Compute) |
+| `active_blocks` | integer | Active CUDA blocks (not parsed, always 0) |
+| `memory_throughput` | integer | Memory throughput (not parsed, always 0) |
+| `dram_read_bytes` | integer | DRAM read bytes (from Nsight Compute) |
+| `dram_write_bytes` | integer | DRAM write bytes (from Nsight Compute) |
+| `available` | boolean | Whether Nsight Compute metrics are available |
 
 **Example:**
 ```bash
 curl http://localhost:6767/vram | jq
 ```
+
+**Data Sources:**
+
+- **NVML (NVIDIA Management Library)**: System-level GPU memory (`total_bytes`, `used_bytes`, `free_bytes`), process-level memory usage (`processes[]`)
+- **vLLM Metrics API**: Block allocation data (`active_blocks` from `vllm:cache_config_info`), KV cache utilization (`utilized` from `vllm:kv_cache_usage_perc`)
+- **Nsight Compute (NCU)**: GPU activity metrics (`atomic_operations`, `threads_per_block`, `occupancy`, `dram_read_bytes`, `dram_write_bytes`)
+- **Calculated Fields**: `free_blocks` (active_blocks - utilized), `fragmentation_ratio` (1 - free/total), `block.size` (process_memory / num_blocks)
+
+**Key Metrics:**
+
+- **`active_blocks`**: Total blocks vLLM has allocated for KV cache (from vLLM)
+- **`utilized_blocks`**: Count of blocks actively storing data (calculated from vLLM's `kv_cache_usage_perc`)
+- **`utilized`** (per block): Whether block is actively storing data (boolean in `blocks[]` array)
+- **`free_blocks`**: Allocated but unused blocks = `active_blocks - utilized_blocks`
 
 ---
 

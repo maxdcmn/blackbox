@@ -74,8 +74,9 @@ struct DetailedVRAMInfo {
     // Note: threads are application-level threads, not GPU CUDA threads
     // For GPU thread/block/atomic metrics, use NVIDIA Nsight Compute (NCU) profiler
     std::vector<ThreadInfo> threads;
-    unsigned int active_blocks;  // GPU memory blocks
-    unsigned int free_blocks;    // GPU memory blocks
+    unsigned int active_blocks;  // GPU memory blocks (allocated)
+    unsigned int utilized_blocks; // GPU memory blocks (actively used)
+    unsigned int free_blocks;    // GPU memory blocks (allocated but unused)
     // Atomic allocations: sum of all process memory from NVML
     unsigned long long atomic_allocations;
     double fragmentation_ratio;
@@ -325,6 +326,7 @@ DetailedVRAMInfo getDetailedVRAMUsage() {
     } else {
         // No vLLM data available
         detailed.active_blocks = 0;
+        detailed.utilized_blocks = 0;
         detailed.free_blocks = 0;
     }
     
@@ -346,13 +348,16 @@ DetailedVRAMInfo getDetailedVRAMUsage() {
             utilized_count++;
         }
         
+        detailed.utilized_blocks = utilized_count;
         std::cout << "[DEBUG] Block utilization: " << utilized_count << " / " << detailed.active_blocks 
                   << " blocks utilized (" << (vllm_blocks.kv_cache_usage_perc * 100.0) << "%)" << std::endl;
+    } else {
+        detailed.utilized_blocks = 0;
     }
     
     // Calculate free blocks: allocated but not utilized
     if (detailed.active_blocks > 0) {
-        detailed.free_blocks = detailed.active_blocks - utilized_count;
+        detailed.free_blocks = detailed.active_blocks - detailed.utilized_blocks;
     }
 
     // Set atomic allocations to sum of all process memory allocations from NVML
@@ -363,15 +368,9 @@ DetailedVRAMInfo getDetailedVRAMUsage() {
     detailed.fragmentation_ratio = detailed.total > 0 ? 
         (1.0 - (double)detailed.free / detailed.total) : 0.0;
 
-    // Create thread info from processes (application-level, not GPU CUDA threads)
-    // NVML only provides process-level VRAM usage, not per-thread GPU metrics
-    for (size_t i = 0; i < detailed.processes.size(); ++i) {
-        ThreadInfo ti;
-        ti.thread_id = i;
-        ti.allocated_bytes = detailed.processes[i].used_bytes;
-        ti.state = "active";
-        detailed.threads.push_back(ti);
-    }
+    // Threads array removed - it was just a 1:1 mapping of processes with no useful information
+    // NVML doesn't provide per-thread GPU metrics, only process-level
+    // For actual GPU thread/block metrics, see nsight_metrics
 #endif
     return detailed;
 }
@@ -481,6 +480,7 @@ std::string createDetailedResponse(const DetailedVRAMInfo& info) {
         << R"(,"reserved_bytes":)" << info.reserved
         << R"(,"used_percent":)" << std::fixed << std::setprecision(2) << usedPercent
         << R"(,"active_blocks":)" << info.active_blocks
+        << R"(,"utilized_blocks":)" << info.utilized_blocks
         << R"(,"free_blocks":)" << info.free_blocks
         << R"(,"atomic_allocations_bytes":)" << info.atomic_allocations
         << R"(,"fragmentation_ratio":)" << std::fixed << std::setprecision(4) << info.fragmentation_ratio

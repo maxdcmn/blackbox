@@ -43,19 +43,15 @@ def parse_vram(data: Dict[str, Any], clear_screen: bool = False):
     print(f"  Reserved:  {format_bytes(reserved)}")
     
     # Blocks
-    active = data.get('active_blocks', 0)  # Utilized blocks
-    free_blocks = data.get('free_blocks', 0)
+    active_blocks = data.get('active_blocks', 0)  # Total allocated blocks
+    utilized_blocks = data.get('utilized_blocks', 0)  # Blocks actively storing data
+    free_blocks = data.get('free_blocks', 0)  # Allocated but unused blocks
     frag = data.get('fragmentation_ratio', 0)
     atomic = data.get('atomic_allocations_bytes', 0)
     
-    # Calculate allocated blocks from block list
-    blocks = data.get('blocks', [])
-    allocated_count = sum(1 for b in blocks if b.get('allocated', False))
-    utilized_count = sum(1 for b in blocks if b.get('utilized', False))
-    
     print(f"\nBlocks:")
-    print(f"  Allocated: {allocated_count} (reserved for KV cache)")
-    print(f"  Utilized:  {utilized_count} (actively storing data)")
+    print(f"  Allocated: {active_blocks} (reserved for KV cache)")
+    print(f"  Utilized:  {utilized_blocks} (actively storing data)")
     print(f"  Free:      {free_blocks} (allocated but not used)")
     print(f"  Fragmentation: {frag:.4f}")
     print(f"  Atomic Allocations: {format_bytes(atomic)}")
