@@ -9,7 +9,7 @@ type Snapshot struct {
 	UsedPercent            float64   `json:"used_percent"`
 	TotalBlocks            int       `json:"total_blocks"`
 	AllocatedBlocks        int       `json:"allocated_blocks"`
-	ActiveBlocks           int       `json:"active_blocks"`
+	ActiveBlocks           int       `json:"utilized_blocks"`
 	FreeBlocks             int       `json:"free_blocks"`
 	AtomicAllocationsBytes int64     `json:"atomic_allocations_bytes"`
 	FragmentationRatio     float64   `json:"fragmentation_ratio"`
