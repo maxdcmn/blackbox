@@ -32,7 +32,7 @@ var rootCmd = &cobra.Command{
 
 		timeout, err := time.ParseDuration(rf.timeout)
 		if err != nil {
-			timeout = 2 * time.Second
+			timeout = 10 * time.Second
 		}
 		interval := 1 * time.Second
 
@@ -55,7 +55,7 @@ func Execute() {
 func init() {
 	rootCmd.PersistentFlags().StringVar(&rf.baseURL, "url", "http://127.0.0.1:8080", "blackbox-server base URL")
 	rootCmd.PersistentFlags().StringVar(&rf.endpoint, "endpoint", "/vram", "VRAM endpoint path")
-	rootCmd.PersistentFlags().StringVar(&rf.timeout, "timeout", "2s", "HTTP timeout (e.g. 2s, 500ms)")
+	rootCmd.PersistentFlags().StringVar(&rf.timeout, "timeout", "10s", "HTTP timeout (e.g. 10s, 500ms)")
 
 	rootCmd.AddCommand(statCmd)
 }

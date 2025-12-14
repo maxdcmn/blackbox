@@ -7,8 +7,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/maxdcmn/blackbox-cli/internal/client"
+	"github.com/spf13/cobra"
 )
 
 var statFlags struct {

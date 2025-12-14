@@ -7,6 +7,8 @@ type Snapshot struct {
 	FreeBytes              int64     `json:"free_bytes"`
 	ReservedBytes          int64     `json:"reserved_bytes"`
 	UsedPercent            float64   `json:"used_percent"`
+	TotalBlocks            int       `json:"total_blocks"`
+	AllocatedBlocks        int       `json:"allocated_blocks"`
 	ActiveBlocks           int       `json:"active_blocks"`
 	FreeBlocks             int       `json:"free_blocks"`
 	AtomicAllocationsBytes int64     `json:"atomic_allocations_bytes"`
@@ -36,4 +38,5 @@ type Block struct {
 	Size      int64  `json:"size"`
 	Type      string `json:"type"`
 	Allocated bool   `json:"allocated"`
+	Utilized  bool   `json:"utilized"`
 }

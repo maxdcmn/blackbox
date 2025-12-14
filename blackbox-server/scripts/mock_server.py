@@ -1,10 +1,8 @@
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import json
-import time
 import random
 from datetime import datetime
 
-# Mock Prometheus metrics string (vLLM metrics)
 MOCK_VLLM_METRICS = """# HELP python_gc_objects_collected_total Objects collected during gc
 # TYPE python_gc_objects_collected_total counter
 python_gc_objects_collected_total{generation="0"} 12662.0
@@ -24,34 +22,76 @@ class MockVRAMHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == '/vram':
             total_bytes = 42949672960
-            used_bytes = random.randint(30000000000, 40000000000)
+            used_bytes = random.randint(int(total_bytes * 0.2), int(total_bytes * 1.0))
             free_bytes = total_bytes - used_bytes
-            reserved_bytes = used_bytes
+            reserved_bytes = int(used_bytes * random.uniform(0.95, 1.05))
             used_percent = (used_bytes / total_bytes) * 100.0
-            active_blocks = random.randint(1, 5)
-            free_blocks = random.randint(0, 2)
-            atomic_allocations_bytes = used_bytes
-            fragmentation_ratio = used_percent / 100.0
             
-            # Generate mock processes
+            total_blocks = 14000
+            active_blocks = random.randint(int(total_blocks * 0.2), total_blocks)
+            free_blocks_count = total_blocks - active_blocks
+            allocated_blocks = total_blocks
+            
+            block_size = random.choice([8 * 1024, 16 * 1024, 32 * 1024, 64 * 1024])
+            blocks = []
+            allocated_list = random.sample(range(total_blocks), allocated_blocks)
+            active_list = random.sample(allocated_list, min(active_blocks, len(allocated_list)))
+            
+            for i in range(min(total_blocks, 2000)):
+                is_allocated = i in allocated_list if i < len(allocated_list) else False
+                is_utilized = i in active_list if i < len(active_list) else False
+                blocks.append({
+                    "block_id": i,
+                    "address": i * block_size,
+                    "size": block_size,
+                    "type": "kv_cache",
+                    "allocated": is_allocated,
+                    "utilized": is_utilized
+                })
+            
+            fragmentation_ratio = random.uniform(0.7, 1.0)
+            atomic_allocations_bytes = int(used_bytes * random.uniform(0.2, 1.0))
+            
+            num_processes = random.randint(20, 40)
             processes = []
-            if random.random() > 0.3:  # 70% chance of having a process
-                process_used = random.randint(25000000000, 35000000000)
+            remaining_bytes = used_bytes
+            process_names = ["VLLM::EngineCor", "python", "vllm-worker", "torch-compile", "vllm::LLMEngine", "cuda-serv", "model-loader", "tokenizer", "inference-engine", "gpu-monitor", "cache-manager"]
+            
+            for i in range(num_processes):
+                if i == num_processes - 1:
+                    process_used = max(0, remaining_bytes)
+                else:
+                    max_per_process = remaining_bytes // (num_processes - i)
+                    process_used = random.randint(int(max_per_process * 0.3), int(max_per_process * 0.9))
+                process_used = max(0, min(process_used, remaining_bytes))
+                remaining_bytes -= process_used
+                
                 processes.append({
-                    "pid": random.randint(100000, 200000),
-                    "name": "VLLM::EngineCor",
+                    "pid": random.randint(10000, 999999),
+                    "name": random.choice(process_names),
                     "used_bytes": process_used,
-                    "reserved_bytes": process_used
+                    "reserved_bytes": int(process_used * random.uniform(0.90, 1.10))
                 })
             
-            # Generate mock threads
             threads = []
-            for i, proc in enumerate(processes):
-                threads.append({
-                    "thread_id": i,
-                    "allocated_bytes": proc["used_bytes"],
-                    "state": "active"
-                })
+            thread_id_counter = 0
+            for proc in processes:
+                num_threads = random.randint(20, 40)
+                thread_bytes_total = proc["used_bytes"]
+                
+                for j in range(num_threads):
+                    if j == num_threads - 1:
+                        thread_allocated = thread_bytes_total
+                    else:
+                        thread_allocated = random.randint(int(thread_bytes_total * 0.05), int(thread_bytes_total * 0.4))
+                        thread_bytes_total -= thread_allocated
+                    
+                    threads.append({
+                        "thread_id": thread_id_counter,
+                        "allocated_bytes": max(0, thread_allocated),
+                        "state": random.choice(["active", "idle", "waiting", "running", "blocked", "sleeping"])
+                    })
+                    thread_id_counter += 1
             
             vram_data = {
                 "total_bytes": total_bytes,
@@ -59,13 +99,15 @@ class MockVRAMHandler(BaseHTTPRequestHandler):
                 "free_bytes": free_bytes,
                 "reserved_bytes": reserved_bytes,
                 "used_percent": round(used_percent, 2),
+                "total_blocks": total_blocks,
+                "allocated_blocks": allocated_blocks,
                 "active_blocks": active_blocks,
-                "free_blocks": free_blocks,
+                "free_blocks": free_blocks_count,
                 "atomic_allocations_bytes": atomic_allocations_bytes,
                 "fragmentation_ratio": round(fragmentation_ratio, 4),
                 "processes": processes,
                 "threads": threads,
-                "blocks": [],
+                "blocks": blocks[:1000],
                 "vllm_metrics": MOCK_VLLM_METRICS
             }
             
@@ -96,4 +138,3 @@ def run(port=8080):
 
 if __name__ == '__main__':
     run()
-
