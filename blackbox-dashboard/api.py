@@ -71,7 +71,7 @@ class NodeCollector:
                 # Create snapshot
                 db_snapshot = VRAMSnapshot(
                     node_id=self.node_id,
-                    timestamp=datetime.utcnow(),
+                    timestamp=datetime.now(),
                     total_bytes=total_bytes,
                     used_bytes=used_bytes,
                     free_bytes=data.get("free_bytes", 0),
@@ -138,7 +138,7 @@ class NodeCollector:
                 # Update node's last_seen
                 node = db.query(Node).filter(Node.id == self.node_id).first()
                 if node:
-                    node.last_seen = datetime.utcnow()
+                    node.last_seen = datetime.now()
 
                 db.add(db_snapshot)
                 db.commit()
@@ -609,13 +609,13 @@ async def create_snapshot(snapshot: VRAMSnapshotCreate):
             node_id = default_node.id
 
             # Update last_seen
-            default_node.last_seen = datetime.utcnow()
+            default_node.last_seen = datetime.now()
         else:
             # Update last_seen for specified node
             node = db.query(Node).filter(Node.id == node_id).first()
             if not node:
                 raise HTTPException(status_code=404, detail=f"Node with id {node_id} not found")
-            node.last_seen = datetime.utcnow()
+            node.last_seen = datetime.now()
 
         # Calculate derived metrics
         utilized_blocks = sum(1 for b in snapshot.blocks if b.utilized)
@@ -625,7 +625,7 @@ async def create_snapshot(snapshot: VRAMSnapshotCreate):
         # Create snapshot
         db_snapshot = VRAMSnapshot(
             node_id=node_id,
-            timestamp=snapshot.timestamp or datetime.utcnow(),
+            timestamp=snapshot.timestamp or datetime.now(),
             total_bytes=snapshot.total_bytes,
             used_bytes=snapshot.used_bytes,
             free_bytes=snapshot.free_blocks,
@@ -839,7 +839,7 @@ async def get_timeseries(
     db = get_session()
     try:
         # Calculate time range
-        end_time = datetime.utcnow()
+        end_time = datetime.now()
         start_time = end_time - timedelta(seconds=duration)
 
         # Query snapshots in time range
@@ -915,7 +915,7 @@ async def get_stats(
         query = db.query(VRAMSnapshot)
 
         if duration:
-            start_time = datetime.utcnow() - timedelta(seconds=duration)
+            start_time = datetime.now() - timedelta(seconds=duration)
             query = query.filter(VRAMSnapshot.timestamp >= start_time)
 
         snapshots = query.all()
@@ -947,7 +947,7 @@ async def get_process_history(
     """Get process activity history"""
     db = get_session()
     try:
-        start_time = datetime.utcnow() - timedelta(seconds=duration)
+        start_time = datetime.now() - timedelta(seconds=duration)
 
         # Get all processes in time range with their snapshots
         query = db.query(Process, VRAMSnapshot.timestamp).join(
@@ -990,7 +990,7 @@ async def cleanup_old_snapshots(
     """Delete old snapshots to free up space"""
     db = get_session()
     try:
-        cutoff_time = datetime.utcnow() - timedelta(days=older_than_days)
+        cutoff_time = datetime.now() - timedelta(days=older_than_days)
 
         deleted = db.query(VRAMSnapshot).filter(
             VRAMSnapshot.timestamp < cutoff_time

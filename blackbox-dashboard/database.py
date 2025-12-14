@@ -19,7 +19,7 @@ class Node(Base):
     host = Column(String, nullable=False)  # IP or hostname
     port = Column(Integer, default=6767)
     enabled = Column(Boolean, default=True)  # Can disable without deleting
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now)
     last_seen = Column(DateTime, nullable=True)  # Last successful data fetch
 
     # Relationships
@@ -32,7 +32,7 @@ class VRAMSnapshot(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     node_id = Column(Integer, ForeignKey('nodes.id'), index=True, nullable=False)
-    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    timestamp = Column(DateTime, default=datetime.now, index=True)
 
     # Memory metrics
     total_bytes = Column(Integer)
