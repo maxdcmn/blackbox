@@ -4,7 +4,7 @@
 
 set -e
 
-REPO="yourorg/blackbox"  # Update with your GitHub repo
+REPO="maxdcmn/blackbox"
 VERSION="1.0.0"
 DEB_FILE="blackbox-server_${VERSION}.deb"
 

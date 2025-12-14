@@ -7,6 +7,9 @@ VERSION="1.0.0"
 DEB_FILE="blackbox-server_${VERSION}.deb"
 GITHUB_URL="https://github.com/${REPO}/releases/download/v${VERSION}/${DEB_FILE}"
 
+# Alternative: if package is in blackbox-server/ subdirectory
+# GITHUB_URL="https://github.com/${REPO}/releases/download/v${VERSION}/blackbox-server/${DEB_FILE}"
+
 echo "Installing blackbox-server from GitHub..."
 echo "Downloading: ${GITHUB_URL}"
 
