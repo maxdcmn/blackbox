@@ -1,90 +1,130 @@
 # Blackbox
 
-Blackbox is a CLI tool for monitoring vLLM usage. It provides real-time insights and metrics for tracking the performance and resource utilization of your vLLM deployments.
+![License](https://img.shields.io/github/license/maxdcmn/blackbox)
+![Status](https://img.shields.io/badge/status-active-green)
 
-## API Response Structure
+Blackbox is a monitoring solution for vLLM deployments, consisting of a GPU VRAM monitoring server and a terminal-based CLI client. It provides real-time insights into GPU memory utilization, KV cache blocks, process metrics, and Nsight Compute statistics.
 
-The `/vram` endpoint returns a JSON object with the following structure:
+
+- **blackbox-server**: C++ HTTP server that monitors GPU VRAM using NVML and Nsight Compute
+- **blackbox-cli**: Go-based terminal client with interactive dashboard and JSON API
+
+## blackbox-server
+
+GPU VRAM monitoring server with NVML and Nsight Compute integration.
+
+### Installation
+
+**Prerequisites:** Linux (Ubuntu 22+), NVIDIA GPU with drivers 470+, CMake 3.15+, C++17 compiler
+
+```bash
+cd blackbox-server
+./scripts/install_deps.sh
+./scripts/setup.sh
+./build/blackbox-server [port]
+```
+
+See [blackbox-server/docs/SETUP.md](blackbox-server/docs/SETUP.md) for detailed instructions.
+
+### API Endpoints
+
+**GET /vram** - Returns current VRAM metrics as JSON
+
+```bash
+curl http://localhost:6767/vram
+```
+
+**GET /vram/stream** - Server-Sent Events stream with real-time updates (~500ms interval)
+
+```bash
+curl -N http://localhost:6767/vram/stream
+```
+
+See [blackbox-server/docs/API.md](blackbox-server/docs/API.md) for complete API documentation.
+
+## blackbox-cli
+
+Terminal-based monitoring client with interactive dashboard and JSON output.
+
+### Installation
+
+```bash
+git clone https://github.com/maxdcmn/blackbox.git
+cd blackbox/blackbox-cli
+go build -o blackbox ./main.go
+sudo mv blackbox /usr/local/bin/
+```
+
+### Usage
+
+**Interactive Dashboard:**
+```bash
+blackbox
+```
+
+**Command-Line Options:**
+- `--url <url>`: Server URL (default: `http://127.0.0.1:8080`)
+- `--endpoint <path>`: API endpoint (default: `/vram`)
+- `--timeout <duration>`: HTTP timeout (default: `10s`)
+
+**Examples:**
+```bash
+blackbox --url http://192.168.1.100:6767
+blackbox stat --compact
+```
+
+### Configuration
+
+Configuration file: `~/.config/blackbox/config.json`
 
 ```json
 {
-  "total_bytes": 42949672960,
-  "used_bytes": 34561064960,
-  "free_bytes": 8388608000,
-  "reserved_bytes": 34561064960,
-  "used_percent": 80.45,
-  "allocated_blocks": 14401,
-  "utilized_blocks": 0,
-  "free_blocks": 14401,
-  "atomic_allocations_bytes": 31299958784,
-  "fragmentation_ratio": 0.8045,
-  "processes": [
+  "endpoints": [
     {
-      "pid": 131963,
-      "name": "VLLM::EngineCor",
-      "used_bytes": 31299958784,
-      "reserved_bytes": 31299958784
+      "name": "local",
+      "base_url": "http://127.0.0.1:8080",
+      "endpoint": "/vram",
+      "timeout": "2s"
     }
-  ],
-  "threads": [
-    {
-      "thread_id": 0,
-      "allocated_bytes": 31299958784,
-      "state": "active"
-    }
-  ],
-  "blocks": [
-    {
-      "block_id": 0,
-      "address": 0,
-      "size": 2173952,
-      "type": "kv_cache",
-      "allocated": true,
-      "utilized": false
-    }
-  ],
-  "nsight_metrics": {
-    "131963": {
-      "atomic_operations": 0,
-      "threads_per_block": 0,
-      "occupancy": 0.0,
-      "active_blocks": 0,
-      "memory_throughput": 0,
-      "dram_read_bytes": 0,
-      "dram_write_bytes": 0,
-      "available": false
-    }
-  }
+  ]
 }
 ```
 
-### Field Descriptions
 
-- **`total_bytes`**: Total GPU memory in bytes (from NVML)
-- **`used_bytes`**: Currently used GPU memory (from NVML)
-- **`free_bytes`**: Free GPU memory (from NVML)
-- **`reserved_bytes`**: Reserved GPU memory (from NVML)
-- **`used_percent`**: Memory usage percentage (0-100)
-- **`allocated_blocks`**: Total allocated KV cache blocks (from vLLM)
-- **`utilized_blocks`**: Blocks actively storing data (calculated from vLLM's `kv_cache_usage_perc`)
-- **`free_blocks`**: Allocated but unused blocks (calculated: `allocated_blocks - utilized_blocks`)
-- **`atomic_allocations_bytes`**: Sum of all process memory allocations (from NVML)
-- **`fragmentation_ratio`**: Memory fragmentation (0-1, calculated)
-- **`processes`**: Array of GPU processes with PID, name, and memory usage (from NVML)
-- **`threads`**: Empty array (removed - was redundant 1:1 mapping of processes)
-- **`blocks`**: Array of memory blocks with allocation and utilization status
-  - **`block_id`**: Block identifier (0 to `allocated_blocks-1`)
-  - **`address`**: Memory address (0 if unknown)
-  - **`size`**: Block size in bytes (calculated from NVML process memory / num_blocks)
-  - **`type`**: Block type ("kv_cache" for vLLM blocks)
-  - **`allocated`**: Whether block is allocated (always `true` for vLLM blocks)
-  - **`utilized`**: Whether block is actively storing data (from vLLM's `kv_cache_usage_perc`)
-- **`nsight_metrics`**: Object keyed by PID containing Nsight Compute metrics
-  - **`atomic_operations`**: Count of atomic operations (from Nsight Compute)
-  - **`threads_per_block`**: CUDA threads per block (from Nsight Compute)
-  - **`occupancy`**: GPU occupancy percentage (from Nsight Compute)
-  - **`active_blocks`**: Active CUDA blocks (not parsed, always 0)
-  - **`memory_throughput`**: Memory throughput (not parsed, always 0)
-  - **`dram_read_bytes`**: DRAM read bytes (from Nsight Compute)
-  - **`dram_write_bytes`**: DRAM write bytes (from Nsight Compute)
-  - **`available`**: Whether Nsight Compute metrics are available
+## API Response Structure
+
+The `/vram` endpoint returns JSON with the following key fields:
+
+- **Memory Metrics**: `total_bytes`, `used_bytes`, `free_bytes`, `reserved_bytes`, `used_percent`
+- **Block Metrics**: `active_blocks`, `utilized_blocks`, `free_blocks`, `fragmentation_ratio`
+- **Processes**: Array of GPU processes with PID, name, and memory usage
+- **Blocks**: Array of memory blocks with allocation and utilization status
+- **Nsight Metrics**: GPU activity metrics per process (occupancy, DRAM read/write, etc.)
+
+**Data Sources:**
+- **NVML**: System-level and process-level GPU memory
+- **vLLM Metrics API**: KV cache block allocation and utilization
+- **Nsight Compute**: GPU activity metrics
+
+See [blackbox-server/docs/API.md](blackbox-server/docs/API.md) for complete field descriptions.
+
+## Project Structure
+
+```
+blackbox/
+├── blackbox-server/          # C++ HTTP server
+│   ├── src/                  # C++ source code
+│   ├── py_script/            # Python scripts (vLLM integration)
+│   ├── scripts/              # Build and setup scripts
+│   └── docs/                 # Documentation
+│
+└── blackbox-cli/             # Go CLI client
+    ├── cmd/                  # Cobra commands
+    └── internal/             # Client, config, UI components
+```
+
+## Further Documentation
+
+- [Server API Reference](blackbox-server/docs/API.md) - Complete API documentation
+- [Server Setup Guide](blackbox-server/docs/SETUP.md) - Detailed installation instructions
+- [Server Implementation](blackbox-server/docs/IMPLEMENTATION.md) - Technical details
