@@ -283,18 +283,21 @@ DetailedVRAMInfo getDetailedVRAMUsage() {
             // Sum up all process memory allocations (atomic allocations per process)
             total_atomic_allocations += processes[i].usedGpuMemory;
             
-            char name[256] = {0};
-            FILE* fp = fopen(absl::StrCat("/proc/", pm.pid, "/comm").c_str(), "r");
-            if (fp) {
-                fgets(name, sizeof(name), fp);
-                fclose(fp);
-                pm.name = name;
-                if (!pm.name.empty() && pm.name.back() == '\n') {
-                    pm.name.pop_back();
-                }
-            } else {
-                pm.name = "unknown";
-            }
+                   char name[256] = {0};
+                   FILE* fp = fopen(absl::StrCat("/proc/", pm.pid, "/comm").c_str(), "r");
+                   if (fp) {
+                       if (fgets(name, sizeof(name), fp)) {
+                           pm.name = name;
+                           if (!pm.name.empty() && pm.name.back() == '\n') {
+                               pm.name.pop_back();
+                           }
+                       } else {
+                           pm.name = "unknown";
+                       }
+                       fclose(fp);
+                   } else {
+                       pm.name = "unknown";
+                   }
             detailed.processes.push_back(pm);
             
             // Get Nsight Compute metrics for this PID
@@ -587,18 +590,34 @@ void handleStreamingRequest(tcp::socket& socket) {
                 
                 std::this_thread::sleep_for(std::chrono::milliseconds(500));
             } catch (const boost::system::system_error& e) {
-                // Client disconnected during streaming (handles both boost::system and boost::beast errors)
-                if (e.code() == boost::asio::error::broken_pipe || 
-                    e.code() == boost::asio::error::connection_reset ||
-                    e.code() == boost::asio::error::eof ||
-                    e.code() == boost::beast::http::error::end_of_stream) {
-                    break;
+                // Client disconnected during streaming - check all possible disconnect error codes
+                auto ec = e.code();
+                if (ec == boost::asio::error::broken_pipe || 
+                    ec == boost::asio::error::connection_reset ||
+                    ec == boost::asio::error::eof ||
+                    ec == boost::beast::http::error::end_of_stream ||
+                    ec == boost::asio::error::operation_aborted ||
+                    ec.category() == boost::asio::error::get_system_category()) {
+                    break; // Client disconnected, exit silently
                 }
-                throw; // Re-throw other errors
+                // Only log unexpected errors
+                std::cerr << "Unexpected error in stream: " << e.what() << std::endl;
+                break;
+            } catch (const std::exception& e) {
+                // Check if it's a disconnect-related error
+                std::string err_msg = e.what();
+                if (err_msg.find("end of stream") != std::string::npos ||
+                    err_msg.find("end_of_stream") != std::string::npos ||
+                    err_msg.find("Broken pipe") != std::string::npos ||
+                    err_msg.find("Connection reset") != std::string::npos) {
+                    break; // Client disconnected, exit silently
+                }
+                std::cerr << "Error in stream: " << e.what() << std::endl;
+                break;
             }
         }
     } catch (...) {
-        // Client disconnected, exit silently
+        // Client disconnected, exit silently (catch-all for any remaining exceptions)
     }
 }
 
@@ -622,7 +641,19 @@ void handleRequest(http::request<http::string_body>& req, tcp::socket& socket) {
             res.set(http::field::content_type, "application/json");
             res.body() = json;
             res.prepare_payload();
-            http::write(socket, res);
+            
+            try {
+                http::write(socket, res);
+            } catch (const boost::system::system_error& e) {
+                // Client disconnected before response sent - ignore silently
+                auto ec = e.code();
+                if (ec == boost::asio::error::broken_pipe || 
+                    ec == boost::asio::error::connection_reset ||
+                    ec == boost::asio::error::eof) {
+                    return; // Client disconnected, exit silently
+                }
+                throw; // Re-throw unexpected errors
+            }
             return;
         }
     }
@@ -630,11 +661,23 @@ void handleRequest(http::request<http::string_body>& req, tcp::socket& socket) {
     http::response<http::string_body> res;
     res.version(req.version());
     res.keep_alive(req.keep_alive());
-        res.result(http::status::not_found);
-        res.set(http::field::content_type, "text/plain");
-        res.body() = "Not Found";
+    res.result(http::status::not_found);
+    res.set(http::field::content_type, "text/plain");
+    res.body() = "Not Found";
     res.prepare_payload();
-    http::write(socket, res);
+    
+    try {
+        http::write(socket, res);
+    } catch (const boost::system::system_error& e) {
+        // Client disconnected - ignore silently
+        auto ec = e.code();
+        if (ec == boost::asio::error::broken_pipe || 
+            ec == boost::asio::error::connection_reset ||
+            ec == boost::asio::error::eof) {
+            return; // Client disconnected, exit silently
+        }
+        throw; // Re-throw unexpected errors
+    }
 }
 
 void acceptConnections(tcp::acceptor& acceptor) {
@@ -650,23 +693,32 @@ void acceptConnections(tcp::acceptor& acceptor) {
         } catch (const boost::system::system_error& e) {
             // Handle connection errors gracefully - client disconnected
             // (boost::beast::system_error is a typedef of boost::system::system_error)
-            if (e.code() == boost::asio::error::broken_pipe || 
-                e.code() == boost::asio::error::connection_reset ||
-                e.code() == boost::asio::error::eof ||
-                e.code() == boost::beast::http::error::end_of_stream) {
-                // Client disconnected, continue to next connection (silent)
+            auto ec = e.code();
+            if (ec == boost::asio::error::broken_pipe || 
+                ec == boost::asio::error::connection_reset ||
+                ec == boost::asio::error::eof ||
+                ec == boost::beast::http::error::end_of_stream ||
+                ec == boost::asio::error::operation_aborted ||
+                ec.category() == boost::asio::error::get_system_category()) {
+                // Client disconnected, continue to next connection (silent - no logging)
                 continue;
             }
-            // Only log non-connection errors
-            std::cerr << "Connection error: " << e.what() << std::endl;
+            // Only log unexpected errors
+            std::cerr << "Unexpected connection error: " << e.what() << std::endl;
         } catch (const std::exception& e) {
-            // Check if it's an end of stream message
+            // Check if it's a disconnect-related error
             std::string err_msg = e.what();
             if (err_msg.find("end of stream") != std::string::npos ||
-                err_msg.find("end_of_stream") != std::string::npos) {
+                err_msg.find("end_of_stream") != std::string::npos ||
+                err_msg.find("Broken pipe") != std::string::npos ||
+                err_msg.find("Connection reset") != std::string::npos ||
+                err_msg.find("Connection refused") != std::string::npos) {
                 continue; // Client disconnected, continue silently
             }
             std::cerr << "Error handling request: " << e.what() << std::endl;
+        } catch (...) {
+            // Catch-all for any other exceptions (likely disconnections)
+            continue;
         }
     }
 }
