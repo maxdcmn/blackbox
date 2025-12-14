@@ -272,9 +272,13 @@ func (m *DashboardModel) renderMetricContent(title string, height, width int, va
 	valuesText := m.formatMetricValues(title, val1, val2, val3)
 	b.WriteString(fmt.Sprintf("%s  %s\n", titleStyle.Render(title), valuesText))
 
-	if len(history) >= 2 {
+	if len(history) >= 1 {
 		chartHeight := max(4, height-1)
-		chartOutput := m.renderSparklineChart(history, width-2, chartHeight, color, fixedMax, title)
+		historyForChart := history
+		if len(history) == 1 {
+			historyForChart = []float64{history[0], history[0]}
+		}
+		chartOutput := m.renderSparklineChart(historyForChart, width-2, chartHeight, color, fixedMax, title)
 		b.WriteString(chartOutput)
 	} else {
 		loadingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(colorDim)).Italic(true)

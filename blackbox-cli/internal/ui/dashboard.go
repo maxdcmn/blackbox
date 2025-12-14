@@ -241,7 +241,7 @@ func (m *DashboardModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				if len(m.endpoints) > 0 {
 					m.selectEndpoint(m.selected)
-					return m, tea.Batch(fetchSnapshot(m.client, m.timeout, m.selected, m.fetchSequence), tick(m.interval))
+					return m, fetchSnapshot(m.client, m.timeout, m.selected, m.fetchSequence)
 				}
 				m.client = nil
 			}
@@ -274,7 +274,7 @@ func (m *DashboardModel) handleDown() (tea.Model, tea.Cmd) {
 		}
 	} else if m.focusedPanel == 0 && m.selected < len(m.endpoints)-1 {
 		m.selectEndpoint(m.selected + 1)
-		return m, tea.Batch(fetchSnapshot(m.client, m.timeout, m.selected, m.fetchSequence), tick(m.interval))
+		return m, fetchSnapshot(m.client, m.timeout, m.selected, m.fetchSequence)
 	}
 	return m, nil
 }
@@ -287,7 +287,7 @@ func (m *DashboardModel) handleUp() (tea.Model, tea.Cmd) {
 		}
 	} else if m.focusedPanel == 0 && m.selected > 0 {
 		m.selectEndpoint(m.selected - 1)
-		return m, tea.Batch(fetchSnapshot(m.client, m.timeout, m.selected, m.fetchSequence), tick(m.interval))
+		return m, fetchSnapshot(m.client, m.timeout, m.selected, m.fetchSequence)
 	}
 	return m, nil
 }

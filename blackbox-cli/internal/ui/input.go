@@ -98,7 +98,7 @@ func (m *DashboardModel) updateInputMode(msg tea.Msg, isCreate bool) (tea.Model,
 				m.selectEndpoint(m.selected)
 				m.creating = false
 				m.editing = false
-				return m, tea.Batch(fetchSnapshot(m.client, m.timeout, m.selected, m.fetchSequence), tick(m.interval))
+				return m, fetchSnapshot(m.client, m.timeout, m.selected, m.fetchSequence)
 			}
 		case "tab":
 			m.ensureCursorInBounds()
