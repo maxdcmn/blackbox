@@ -5,14 +5,12 @@ High-performance GPU VRAM monitoring server with NVML and Nsight Compute integra
 ## Quick Start
 
 ```bash
-# Install dependencies
-./scripts/install_deps.sh
-
-# Build
-./scripts/setup.sh
+# Build (from project root)
+make
 
 # Run
-./build/blackbox-server
+make run
+# Or manually: ./blackbox-server/build/blackbox-server 6767
 
 # Test
 curl http://localhost:6767/vram
@@ -20,9 +18,9 @@ curl http://localhost:6767/vram
 
 ## Documentation
 
-- **[Complete Documentation](docs/README.md)** - Full documentation
 - **[Setup Guide](docs/SETUP.md)** - Installation instructions
 - **[API Reference](docs/API.md)** - API endpoints and examples
+- **[Implementation Details](docs/IMPLEMENTATION.md)** - Internal architecture
 
 ## Features
 

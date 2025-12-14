@@ -34,6 +34,7 @@ make -j$(nproc)
 
 echo ""
 echo "=== Setup Complete ==="
-echo "Run server with: ./build/blackbox-server"
-echo "Test with: curl http://localhost:8080/vram"
+echo "Run server with: ./build/blackbox-server 6767"
+echo "Or use: make run"
+echo "Test with: curl http://localhost:6767/vram"
 

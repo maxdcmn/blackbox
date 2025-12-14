@@ -4,13 +4,13 @@
 
 **One-liner install:**
 ```bash
-curl -sSL https://raw.githubusercontent.com/yourorg/blackbox/main/blackbox-server/scripts/install_from_github.sh | bash
+curl -sSL https://raw.githubusercontent.com/maxdcmn/blackbox/main/blackbox-server/scripts/install_from_github.sh | bash
 ```
 
 **Or manually:**
 ```bash
 # Download and install
-wget https://github.com/yourorg/blackbox/releases/download/v1.0.0/blackbox-server_1.0.0.deb
+wget https://github.com/maxdcmn/blackbox/releases/download/v1.0.0/blackbox-server_1.0.0.deb
 sudo dpkg -i blackbox-server_1.0.0.deb
 sudo apt-get install -f
 ```
@@ -82,7 +82,7 @@ sudo apt-get install -f
 sudo systemctl status blackbox-server
 
 # Test the API
-curl http://localhost:8080/api/vram
+curl http://localhost:6767/vram
 
 # Check if binary is in PATH
 which blackbox-server
@@ -118,11 +118,11 @@ sudo journalctl -u blackbox-server -f
 
 ## Configuration
 
-The server runs on port `8080` by default. To change this, edit the systemd service:
+The server runs on port `6767` by default. To change this, edit the systemd service:
 
 ```bash
 sudo systemctl edit --full blackbox-server
-# Edit ExecStart line to add --port 6767 (or desired port)
+# Edit ExecStart line to change the port number
 sudo systemctl daemon-reload
 sudo systemctl restart blackbox-server
 ```
