@@ -3,17 +3,120 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Blackbox - KV-Cache Monitor</title>
+    <title>blackbox</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
     <style>
+        /* Theme Variables */
+        :root {
+            /* Dark Theme (default) */
+            --bg-primary: #0a0a0a;
+            --bg-secondary: #1a1a1a;
+            --bg-tertiary: #2a2a2a;
+            --bg-quaternary: #3a3a3a;
+            --text-primary: #f5f5f5;
+            --text-secondary: #b0b0b0;
+            --text-tertiary: #808080;
+            --border-primary: #2a2a2a;
+            --border-secondary: #3a3a3a;
+            --accent-primary: #51cf66;
+            --accent-secondary: #40c057;
+            --accent-gradient: linear-gradient(135deg, #51cf66 0%, #40c057 100%);
+            --shadow-sm: 0 2px 8px rgba(0,0,0,0.3);
+            --shadow-md: 0 4px 15px rgba(0,0,0,0.2);
+            --shadow-lg: 0 10px 30px rgba(0,0,0,0.5);
+
+            /* Status Colors */
+            --success-bg: #d3f9d8;
+            --success-text: #2b8a3e;
+            --error-bg: #ffe3e3;
+            --error-text: #c92a2a;
+            --warning-bg: rgba(255, 107, 107, 0.2);
+            --warning-border: #ff6b6b;
+
+            /* Button Colors */
+            --btn-primary-bg: linear-gradient(135deg, #51cf66 0%, #40c057 100%);
+            --btn-primary-text: #0a0a0a;
+            --btn-secondary-bg: #2a2a2a;
+            --btn-secondary-text: #b0b0b0;
+            --btn-edit-bg: #339af0;
+            --btn-delete-bg: #ff6b6b;
+            --btn-text-light: white;
+
+            /* Chart Colors */
+            --chart-grid: rgba(255, 255, 255, 0.05);
+            --chart-text: #666;
+            --chart-line-1: #51cf66;
+            --chart-line-2: #40c057;
+            --chart-line-3: #228be6;
+            --chart-line-4: #ff6b6b;
+            --chart-line-5: #ffd43b;
+            --chart-line-6: #339af0;
+
+            /* Overlay Colors */
+            --overlay-light: rgba(255, 255, 255, 0.1);
+            --overlay-dark: rgba(0, 0, 0, 0.8);
+            --overlay-accent: rgba(81, 207, 102, 0.1);
+        }
+
+        [data-theme="light"] {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8f9fa;
+            --bg-tertiary: #e9ecef;
+            --bg-quaternary: #dee2e6;
+            --text-primary: #212529;
+            --text-secondary: #495057;
+            --text-tertiary: #6c757d;
+            --border-primary: #dee2e6;
+            --border-secondary: #ced4da;
+            --accent-primary: #51cf66;
+            --accent-secondary: #40c057;
+            --accent-gradient: linear-gradient(135deg, #51cf66 0%, #40c057 100%);
+            --shadow-sm: 0 2px 8px rgba(0,0,0,0.08);
+            --shadow-md: 0 4px 15px rgba(0,0,0,0.1);
+            --shadow-lg: 0 10px 30px rgba(0,0,0,0.15);
+
+            /* Status Colors */
+            --success-bg: #d3f9d8;
+            --success-text: #2b8a3e;
+            --error-bg: #ffe3e3;
+            --error-text: #c92a2a;
+            --warning-bg: rgba(255, 107, 107, 0.15);
+            --warning-border: #ff6b6b;
+
+            /* Button Colors */
+            --btn-primary-bg: linear-gradient(135deg, #51cf66 0%, #40c057 100%);
+            --btn-primary-text: #0a0a0a;
+            --btn-secondary-bg: #e9ecef;
+            --btn-secondary-text: #495057;
+            --btn-edit-bg: #339af0;
+            --btn-delete-bg: #ff6b6b;
+            --btn-text-light: white;
+
+            /* Chart Colors */
+            --chart-grid: rgba(0, 0, 0, 0.08);
+            --chart-text: #666;
+            --chart-line-1: #51cf66;
+            --chart-line-2: #40c057;
+            --chart-line-3: #228be6;
+            --chart-line-4: #ff6b6b;
+            --chart-line-5: #ffd43b;
+            --chart-line-6: #339af0;
+
+            /* Overlay Colors */
+            --overlay-light: rgba(0, 0, 0, 0.05);
+            --overlay-dark: rgba(0, 0, 0, 0.5);
+            --overlay-accent: rgba(81, 207, 102, 0.1);
+        }
+
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: var(--bg-primary);
             min-height: 100vh;
             padding: 40px 20px;
+            transition: background-color 0.3s ease;
         }
 
         .container { max-width: 1400px; margin: 0 auto; }
@@ -25,11 +128,18 @@
             margin-bottom: 40px;
         }
 
+        .logo {
+            height: 60px;
+            width: auto;
+            display: block;
+            transition: opacity 0.3s ease;
+        }
+
         h1 {
-            color: white;
+            color: var(--text-primary);
             margin: 0;
             font-size: 2.5rem;
-            text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
         }
 
         .nodes-grid {
@@ -40,22 +150,23 @@
         }
 
         .node-card {
-            background: white;
+            background: var(--bg-secondary);
             border-radius: 20px;
             padding: 30px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            box-shadow: var(--shadow-lg);
+            border: 1px solid var(--border-primary);
             cursor: pointer;
             min-height: 250px;
             display: flex;
             flex-direction: column;
-            transition: transform 0.3s ease;
+            transition: transform 0.3s ease, background-color 0.3s ease, border-color 0.3s ease;
         }
 
         .node-card:hover { transform: translateY(-5px); }
 
         .node-header { margin-bottom: 15px; }
-        .node-name { font-size: 1.5rem; font-weight: 600; color: #333; margin-bottom: 8px; }
-        .node-status { font-size: 0.85rem; color: #666; }
+        .node-name { font-size: 1.5rem; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }
+        .node-status { font-size: 0.85rem; color: var(--text-secondary); }
 
         .tracking-badge {
             display: inline-block;
@@ -65,8 +176,8 @@
             font-weight: 500;
             margin-left: 8px;
         }
-        .tracking-badge.tracking { background: #d3f9d8; color: #2b8a3e; }
-        .tracking-badge.not-tracking { background: #ffe3e3; color: #c92a2a; }
+        .tracking-badge.tracking { background: var(--success-bg); color: var(--success-text); }
+        .tracking-badge.not-tracking { background: var(--error-bg); color: var(--error-text); }
 
         .node-content { display: flex; gap: 30px; flex: 1; }
         .node-stats { flex: 1; display: flex; flex-direction: column; justify-content: center; }
@@ -75,24 +186,24 @@
         .utilization-value {
             font-size: 3rem;
             font-weight: 700;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: var(--accent-gradient);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             line-height: 1;
         }
-        .utilization-label { font-size: 0.9rem; color: #666; margin-top: 8px; }
+        .utilization-label { font-size: 0.9rem; color: var(--text-secondary); margin-top: 8px; }
 
         .progress-bar {
             width: 100%;
             height: 10px;
-            background: #f0f0f0;
+            background: var(--bg-tertiary);
             border-radius: 5px;
             overflow: hidden;
             margin: 12px 0;
         }
         .progress-fill {
             height: 100%;
-            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            background: var(--accent-gradient);
             transition: width 0.5s ease;
         }
 
@@ -100,25 +211,71 @@
             display: flex;
             justify-content: space-around;
             padding-top: 12px;
-            border-top: 2px solid #f0f0f0;
+            border-top: 2px solid var(--border-primary);
         }
         .ratio-item { text-align: center; }
-        .ratio-value { font-size: 1.5rem; font-weight: 600; color: #667eea; }
-        .ratio-label { font-size: 0.75rem; color: #999; margin-top: 4px; }
+        .ratio-value { font-size: 1.5rem; font-weight: 600; color: var(--accent-primary); }
+        .ratio-label { font-size: 0.75rem; color: var(--text-secondary); margin-top: 4px; }
 
         .node-chart-container { flex: 1; position: relative; }
-        .chart-title { font-size: 0.85rem; color: #999; text-align: center; margin-bottom: 8px; }
+        .chart-title { font-size: 0.85rem; color: var(--text-secondary); text-align: center; margin-bottom: 8px; }
+
+        .navbar-actions {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .theme-toggle-btn {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            border: 2px solid var(--border-primary);
+            padding: 10px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 44px;
+            height: 44px;
+        }
+        .theme-toggle-btn:hover {
+            transform: scale(1.05);
+            border-color: var(--accent-primary);
+        }
+        .theme-toggle-btn svg {
+            width: 20px;
+            height: 20px;
+            fill: var(--text-primary);
+            transition: fill 0.3s ease;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+        }
+        .status-indicator.online {
+            background: var(--accent-primary);
+            box-shadow: 0 0 4px var(--accent-primary);
+        }
+        .status-indicator.offline {
+            background: var(--btn-delete-bg);
+            box-shadow: 0 0 4px var(--btn-delete-bg);
+        }
 
         .add-node-btn {
-            background: white;
-            color: #667eea;
-            border: none;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            border: 2px solid var(--border-primary);
             padding: 12px 24px;
             border-radius: 10px;
             font-size: 1rem;
             font-weight: 600;
             cursor: pointer;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
             transition: all 0.3s ease;
             display: flex;
             align-items: center;
@@ -126,7 +283,7 @@
         }
         .add-node-btn:hover {
             transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+            border-color: var(--accent-primary);
         }
 
         .modal {
@@ -136,26 +293,28 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(0, 0, 0, 0.8);
+            background: var(--overlay-dark);
             z-index: 1000;
             overflow-y: auto;
         }
         .modal.active { display: block; }
 
         .modal-content {
-            background: white;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-primary);
             border-radius: 20px;
             padding: 40px;
             max-width: 500px;
             width: 90%;
             margin: 50px auto;
+            transition: background-color 0.3s ease, border-color 0.3s ease;
         }
         .modal-content.wide { max-width: 95%; }
 
         .modal-header {
             font-size: 1.8rem;
             font-weight: 600;
-            color: #333;
+            color: var(--text-primary);
             margin-bottom: 30px;
             display: flex;
             justify-content: space-between;
@@ -163,27 +322,31 @@
         }
 
         .close-btn {
-            background: #f0f0f0;
+            background: var(--bg-tertiary);
             border: none;
             width: 40px;
             height: 40px;
             border-radius: 50%;
             font-size: 1.5rem;
             cursor: pointer;
-            color: #666;
+            color: var(--text-secondary);
+            transition: background-color 0.3s ease;
         }
-        .close-btn:hover { background: #e0e0e0; }
+        .close-btn:hover { background: var(--bg-quaternary); }
 
         .form-group { margin-bottom: 20px; }
-        .form-label { display: block; font-size: 0.9rem; font-weight: 500; color: #666; margin-bottom: 8px; }
+        .form-label { display: block; font-size: 0.9rem; font-weight: 500; color: var(--text-secondary); margin-bottom: 8px; }
         .form-input {
             width: 100%;
             padding: 12px 15px;
-            border: 2px solid #e0e0e0;
+            border: 2px solid var(--border-primary);
+            background: var(--bg-primary);
+            color: var(--text-primary);
             border-radius: 10px;
             font-size: 1rem;
+            transition: border-color 0.3s ease, background-color 0.3s ease;
         }
-        .form-input:focus { outline: none; border-color: #667eea; }
+        .form-input:focus { outline: none; border-color: var(--accent-primary); }
 
         .form-actions { display: flex; gap: 15px; margin-top: 30px; }
         .btn {
@@ -194,18 +357,20 @@
             font-size: 1rem;
             font-weight: 500;
             cursor: pointer;
+            transition: all 0.3s ease;
         }
-        .btn-primary { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
-        .btn-secondary { background: #f0f0f0; color: #666; }
+        .btn-primary { background: var(--btn-primary-bg); color: var(--btn-primary-text); }
+        .btn-secondary { background: var(--btn-secondary-bg); color: var(--btn-secondary-text); }
 
         .node-controls {
             display: flex;
             justify-content: space-between;
             align-items: center;
             padding: 15px;
-            background: #f8f9fa;
+            background: var(--bg-tertiary);
             border-radius: 10px;
             margin-bottom: 20px;
+            transition: background-color 0.3s ease;
         }
         .node-controls-left { display: flex; gap: 10px; align-items: center; }
         .node-controls-right { display: flex; gap: 10px; }
@@ -217,71 +382,79 @@
             border: none;
             cursor: pointer;
             font-weight: 500;
+            transition: all 0.3s ease;
         }
-        .btn-toggle { background: #51cf66; color: white; }
-        .btn-toggle.disabled { background: #ff6b6b; }
-        .btn-edit { background: #339af0; color: white; }
-        .btn-delete { background: #ff6b6b; color: white; }
+        .btn-toggle { background: var(--accent-primary); color: var(--btn-text-light); }
+        .btn-toggle.disabled { background: var(--btn-delete-bg); }
+        .btn-edit { background: var(--btn-edit-bg); color: var(--btn-text-light); }
+        .btn-delete { background: var(--btn-delete-bg); color: var(--btn-text-light); }
 
         .node-status-badge { padding: 6px 12px; border-radius: 6px; font-size: 0.85rem; font-weight: 500; }
-        .node-status-badge.enabled { background: #d3f9d8; color: #2b8a3e; }
-        .node-status-badge.disabled { background: #ffe3e3; color: #c92a2a; }
+        .node-status-badge.enabled { background: var(--success-bg); color: var(--success-text); }
+        .node-status-badge.disabled { background: var(--error-bg); color: var(--error-text); }
 
         .charts-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
             gap: 30px;
         }
-        .chart-box { background: #f8f9fa; border-radius: 15px; padding: 20px; transition: opacity 0.15s ease; }
-        .chart-box h3 { font-size: 1.1rem; color: #333; margin-bottom: 15px; }
+        .chart-box {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-primary);
+            border-radius: 15px;
+            padding: 20px;
+            transition: opacity 0.15s ease, background-color 0.3s ease, border-color 0.3s ease;
+        }
+        .chart-box h3 { font-size: 1.1rem; color: var(--text-primary); margin-bottom: 15px; }
         .chart-container { position: relative; height: 300px; transition: opacity 0.15s ease; }
 
-        .message { padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 20px; color: white; }
-        .error { background: #ff6b6b; }
-        .success { background: #51cf66; }
+        .message { padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 20px; color: var(--text-primary); }
+        .error { background: var(--btn-delete-bg); }
+        .success { background: var(--accent-primary); }
 
         .no-data {
             text-align: center;
-            color: white;
+            color: var(--text-primary);
             font-size: 1.2rem;
             padding: 60px 20px;
-            background: rgba(255,255,255,0.1);
+            background: var(--overlay-light);
             border-radius: 20px;
         }
 
-        .refresh-info { text-align: center; color: rgba(255,255,255,0.8); font-size: 0.9rem; margin-top: 20px; }
+        .refresh-info { text-align: center; color: var(--text-secondary); font-size: 0.9rem; margin-top: 20px; }
 
         .time-range-selector {
             display: flex;
             align-items: center;
             padding: 15px;
-            background: #f8f9fa;
+            background: var(--bg-tertiary);
             border-radius: 10px;
             margin-bottom: 20px;
+            transition: background-color 0.3s ease;
         }
 
         .time-range-btn {
             padding: 6px 14px;
             margin: 0 4px;
-            border: 2px solid #e0e0e0;
-            background: white;
+            border: 2px solid var(--border-secondary);
+            background: var(--bg-secondary);
             border-radius: 6px;
             font-size: 0.85rem;
             font-weight: 500;
             cursor: pointer;
             transition: all 0.2s ease;
-            color: #666;
+            color: var(--text-secondary);
         }
 
         .time-range-btn:hover {
-            border-color: #667eea;
-            color: #667eea;
+            border-color: var(--accent-primary);
+            color: var(--accent-primary);
         }
 
         .time-range-btn.active {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-color: #667eea;
-            color: white;
+            background: var(--accent-gradient);
+            border-color: var(--accent-primary);
+            color: var(--btn-primary-text);
         }
 
         .auto-refresh-indicator {
@@ -289,11 +462,11 @@
             top: 10px;
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(102, 126, 234, 0.1);
+            background: var(--overlay-accent);
             padding: 8px 12px;
             border-radius: 6px;
             font-size: 0.8rem;
-            color: #667eea;
+            color: var(--accent-primary);
             display: flex;
             align-items: center;
             gap: 6px;
@@ -302,7 +475,7 @@
         .refresh-dot {
             width: 8px;
             height: 8px;
-            background: #667eea;
+            background: var(--accent-primary);
             border-radius: 50%;
             animation: pulse 5s ease-in-out infinite;
         }
@@ -318,13 +491,14 @@
             bottom: 20px;
             right: 20px;
             width: 400px;
-            background: white;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-primary);
             border-radius: 20px 20px 0 0;
-            box-shadow: 0 -5px 30px rgba(0,0,0,0.3);
+            box-shadow: var(--shadow-lg);
             display: flex;
             flex-direction: column;
             max-height: 600px;
-            transition: transform 0.3s ease;
+            transition: transform 0.3s ease, background-color 0.3s ease, border-color 0.3s ease;
             z-index: 1000;
         }
 
@@ -333,8 +507,8 @@
         }
 
         .chat-header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            background: var(--accent-gradient);
+            color: var(--btn-primary-text);
             padding: 15px 20px;
             border-radius: 20px 20px 0 0;
             display: flex;
@@ -353,9 +527,9 @@
         }
 
         .chat-toggle-btn {
-            background: rgba(255, 255, 255, 0.2);
+            background: rgba(0, 0, 0, 0.2);
             border: none;
-            color: white;
+            color: var(--btn-primary-text);
             width: 30px;
             height: 30px;
             border-radius: 50%;
@@ -367,14 +541,14 @@
         }
 
         .chat-toggle-btn:hover {
-            background: rgba(255, 255, 255, 0.3);
+            background: rgba(0, 0, 0, 0.3);
         }
 
         .chat-body {
             flex: 1;
             overflow-y: auto;
             padding: 20px;
-            background: #f8f9fa;
+            background: var(--bg-primary);
             min-height: 300px;
             max-height: 400px;
         }
@@ -402,14 +576,14 @@
         }
 
         .chat-message.user .chat-bubble {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            background: var(--accent-gradient);
+            color: var(--btn-primary-text);
         }
 
         .chat-message.assistant .chat-bubble {
-            background: white;
-            color: #333;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            box-shadow: var(--shadow-sm);
         }
 
         .chat-loading {
@@ -421,7 +595,7 @@
         .chat-loading span {
             width: 8px;
             height: 8px;
-            background: #667eea;
+            background: var(--accent-primary);
             border-radius: 50%;
             animation: bounce 1.4s infinite ease-in-out both;
         }
@@ -436,8 +610,8 @@
 
         .chat-suggestions {
             padding: 10px 20px;
-            background: #f8f9fa;
-            border-top: 1px solid #e0e0e0;
+            background: var(--bg-tertiary);
+            border-top: 1px solid var(--border-primary);
             display: flex;
             flex-wrap: wrap;
             gap: 8px;
@@ -445,23 +619,24 @@
 
         .suggestion-btn {
             padding: 6px 12px;
-            background: white;
-            border: 2px solid #e0e0e0;
+            background: var(--bg-primary);
+            border: 2px solid var(--border-primary);
             border-radius: 20px;
             font-size: 0.85rem;
             cursor: pointer;
             transition: all 0.2s ease;
+            color: var(--text-primary);
         }
 
         .suggestion-btn:hover {
-            border-color: #667eea;
-            background: #f0f0ff;
+            border-color: var(--accent-primary);
+            background: var(--overlay-accent);
         }
 
         .chat-input-container {
             padding: 15px 20px;
-            background: white;
-            border-top: 1px solid #e0e0e0;
+            background: var(--bg-tertiary);
+            border-top: 1px solid var(--border-secondary);
             display: flex;
             gap: 10px;
         }
@@ -469,19 +644,21 @@
         .chat-input {
             flex: 1;
             padding: 10px 15px;
-            border: 2px solid #e0e0e0;
+            border: 2px solid var(--border-secondary);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
             border-radius: 20px;
             font-size: 0.9rem;
             outline: none;
         }
 
         .chat-input:focus {
-            border-color: #667eea;
+            border-color: var(--accent-primary);
         }
 
         .chat-send-btn {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            background: var(--accent-gradient);
+            color: var(--btn-primary-text);
             border: none;
             width: 40px;
             height: 40px;
@@ -504,8 +681,8 @@
 
         .node-selector {
             padding: 10px 20px;
-            background: #f8f9fa;
-            border-top: 1px solid #e0e0e0;
+            background: var(--bg-tertiary);
+            border-top: 1px solid var(--border-primary);
             display: flex;
             flex-wrap: wrap;
             gap: 8px;
@@ -516,15 +693,15 @@
 
         .node-selector-label {
             font-size: 0.85rem;
-            color: #666;
+            color: var(--text-secondary);
             font-weight: 500;
             flex-shrink: 0;
         }
 
         .node-selection-count {
             font-size: 0.75rem;
-            color: #667eea;
-            background: rgba(102, 126, 234, 0.1);
+            color: var(--accent-primary);
+            background: var(--overlay-accent);
             padding: 4px 8px;
             border-radius: 10px;
             font-weight: 600;
@@ -536,17 +713,19 @@
             align-items: center;
             gap: 5px;
             padding: 4px 10px;
-            background: white;
-            border: 2px solid #e0e0e0;
+            background: var(--bg-secondary);
+            border: 2px solid var(--border-secondary);
             border-radius: 15px;
             font-size: 0.85rem;
             cursor: pointer;
+            color: var(--text-secondary);
+            transition: all 0.2s ease;
         }
 
         .node-checkbox.selected {
-            background: #667eea;
-            color: white;
-            border-color: #667eea;
+            background: var(--accent-primary);
+            color: var(--btn-primary-text);
+            border-color: var(--accent-primary);
         }
 
         .node-checkbox input {
@@ -554,20 +733,22 @@
         }
 
         .stats-summary {
-            background: white;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-primary);
             border-radius: 10px;
             padding: 20px;
             margin-top: 15px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            box-shadow: var(--shadow-sm);
+            transition: background-color 0.3s ease, border-color 0.3s ease;
         }
 
         .stats-header {
             font-size: 1.1rem;
             font-weight: 600;
-            color: #333;
+            color: var(--text-primary);
             margin-bottom: 15px;
             padding-bottom: 10px;
-            border-bottom: 2px solid #f0f0f0;
+            border-bottom: 2px solid var(--border-primary);
         }
 
         .stats-grid {
@@ -584,28 +765,30 @@
 
         .stat-label {
             font-size: 0.85rem;
-            color: #666;
+            color: var(--text-secondary);
             font-weight: 500;
         }
 
         .stat-value {
             font-size: 1.3rem;
             font-weight: 600;
-            color: #667eea;
+            color: var(--accent-primary);
         }
 
         /* Node-specific chat in detail modal */
         .detail-chat {
-            background: #f8f9fa;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-primary);
             border-radius: 15px;
             padding: 20px;
             margin-top: 20px;
+            transition: background-color 0.3s ease, border-color 0.3s ease;
         }
 
         .detail-chat-header {
             font-size: 1.1rem;
             font-weight: 600;
-            color: #333;
+            color: var(--text-primary);
             margin-bottom: 15px;
             display: flex;
             align-items: center;
@@ -617,7 +800,7 @@
             overflow-y: auto;
             margin-bottom: 15px;
             padding: 15px;
-            background: white;
+            background: var(--bg-primary);
             border-radius: 10px;
         }
 
@@ -632,16 +815,81 @@
             gap: 8px;
             margin-bottom: 15px;
         }
+
+        /* Cost Estimation */
+        .cost-summary {
+            background: var(--accent-gradient);
+            border-radius: 15px;
+            padding: 25px;
+            margin-top: 15px;
+            color: var(--btn-primary-text);
+        }
+
+        .cost-header {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .cost-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+
+        .cost-item {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 10px;
+            padding: 15px;
+            backdrop-filter: blur(10px);
+        }
+
+        .cost-label {
+            font-size: 0.85rem;
+            opacity: 0.9;
+            margin-bottom: 8px;
+        }
+
+        .cost-value {
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+
+        .cost-subtext {
+            font-size: 0.75rem;
+            opacity: 0.8;
+        }
+
+        .cost-warning {
+            background: var(--warning-bg);
+            border-left: 4px solid var(--warning-border);
+        }
+
+        .cost-good {
+            background: var(--overlay-accent);
+            border-left: 4px solid var(--accent-primary);
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="navbar">
-            <h1>🎯 KV-Cache Monitor</h1>
-            <button class="add-node-btn" onclick="openAddModal()">
-                <span style="font-size: 1.5rem;">+</span>
-                <span>Add Node</span>
-            </button>
+            <img src="logo-light.png" alt="blackbox" class="logo" id="logoImage">
+            <div class="navbar-actions">
+                <button class="theme-toggle-btn" onclick="toggleTheme()" id="themeToggle" title="Toggle theme">
+                    <svg id="themeIcon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                    </svg>
+                </button>
+                <button class="add-node-btn" onclick="openAddModal()">
+                    <span style="font-size: 1.5rem;">+</span>
+                    <span>Add Node</span>
+                </button>
+            </div>
         </div>
         <div id="message-container"></div>
         <div id="nodes-container" class="nodes-grid"></div>
@@ -651,7 +899,12 @@
     <!-- Chat Interface -->
     <div class="chat-container" id="chatContainer">
         <div class="chat-header" onclick="toggleChat()">
-            <h3>💬 AI Assistant</h3>
+            <h3>
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" style="margin-right: 8px;">
+                    <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/>
+                </svg>
+                AI Assistant
+            </h3>
             <button class="chat-toggle-btn" id="chatToggleBtn">−</button>
         </div>
 
@@ -746,6 +999,79 @@
         let nodes = [];
         let charts = {};
         let detailCharts = {};
+
+        // === THEME MANAGEMENT ===
+        function toggleTheme() {
+            const html = document.documentElement;
+            const currentTheme = html.getAttribute('data-theme');
+            const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+
+            // Update icon - moon for dark mode, sun for light mode
+            const icon = document.getElementById('themeIcon');
+            if (newTheme === 'light') {
+                // Sun icon
+                icon.innerHTML = '<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>';
+            } else {
+                // Moon icon
+                icon.innerHTML = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
+            }
+
+            // Update logo
+            const logo = document.getElementById('logoImage');
+            logo.src = newTheme === 'light' ? 'logo-dark.png' : 'logo-light.png';
+
+            // Refresh all charts to pick up new theme colors
+            setTimeout(() => {
+                // Refresh detail charts if modal is open
+                Object.keys(detailCharts).forEach(chartId => {
+                    const chart = detailCharts[chartId];
+                    if (chart) {
+                        const gridColor = getCSSVar('--chart-grid');
+                        const textColor = getCSSVar('--chart-text');
+                        chart.options.scales.x.grid.color = gridColor;
+                        chart.options.scales.x.ticks.color = textColor;
+                        chart.options.scales.y.grid.color = gridColor;
+                        chart.options.scales.y.ticks.color = textColor;
+                        chart.update();
+                    }
+                });
+            }, 50);
+
+            console.log(`[Theme] Switched to ${newTheme} mode`);
+        }
+
+        // Load saved theme on page load
+        function loadTheme() {
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            const html = document.documentElement;
+
+            if (savedTheme === 'light') {
+                html.setAttribute('data-theme', 'light');
+                const icon = document.getElementById('themeIcon');
+                const logo = document.getElementById('logoImage');
+                // Sun icon
+                if (icon) icon.innerHTML = '<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>';
+                if (logo) logo.src = 'logo-dark.png';
+            } else {
+                const logo = document.getElementById('logoImage');
+                if (logo) logo.src = 'logo-light.png';
+                // Moon icon is default
+            }
+
+            console.log(`[Theme] Loaded ${savedTheme} mode`);
+        }
+
+        // Load theme immediately
+        loadTheme();
+
+        // Helper function to get CSS variable value
+        function getCSSVar(varName) {
+            return getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+        }
+
         let refreshTimer = null;
         let detailRefreshTimer = null;
         let currentNode = null;
@@ -839,10 +1165,140 @@
             };
         }
 
+        // Cost estimation: ~$1 per 40GB VRAM per hour
+        async function calculateCosts(nodeId, timeRange) {
+            const GB = 1024 * 1024 * 1024;
+            const MB = 1024 * 1024;
+            const COST_PER_40GB_PER_HOUR = 1.0; // $1 per 40GB per hour
+            const HOURS_PER_MONTH = 730; // Average hours in a month
+
+            // Get current snapshot for total_bytes and block size
+            const snapshot = await fetchSnapshot(nodeId);
+            if (!snapshot) return null;
+
+            // Determine actual block size from the snapshot data
+            // We can calculate this from: atomic_allocations_bytes / allocated_blocks
+            // Or fetch it from the /vram endpoint's block data
+            let blockSizeBytes = null;
+
+            if (snapshot.atomic_allocations_bytes && snapshot.allocated_blocks > 0) {
+                // Calculate actual block size from the data
+                blockSizeBytes = Math.round(snapshot.atomic_allocations_bytes / snapshot.allocated_blocks);
+            }
+
+            // Fallback to fetching detailed snapshot if needed
+            if (!blockSizeBytes) {
+                try {
+                    const detailResponse = await fetch(`${API_BASE}/snapshots/${snapshot.id}`);
+                    if (detailResponse.ok) {
+                        const detail = await detailResponse.json();
+                        if (detail.blocks && detail.blocks.length > 0) {
+                            // Use the size from the first block (all blocks should be same size)
+                            blockSizeBytes = detail.blocks[0].size;
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Could not fetch block size details:', e);
+                }
+            }
+
+            // Final fallback to reasonable estimate if we still don't have it
+            if (!blockSizeBytes) {
+                blockSizeBytes = 32 * MB; // Conservative estimate
+            }
+
+            // Get timeseries data for the selected time range
+            const [memData, allocatedData, utilizedData, freeData] = await Promise.all([
+                fetchTimeseries(nodeId, 'used_bytes', timeRange),
+                fetchTimeseries(nodeId, 'allocated_blocks', timeRange),
+                fetchTimeseries(nodeId, 'utilized_blocks', timeRange),
+                fetchTimeseries(nodeId, 'free_blocks', timeRange)
+            ]);
+
+            if (memData.length === 0) return null;
+
+            // Calculate averages over the time range
+            const avgUsedBytes = memData.reduce((a, b) => a + b.value, 0) / memData.length;
+            const avgAllocatedBlocks = allocatedData.reduce((a, b) => a + b.value, 0) / allocatedData.length;
+            const avgUtilizedBlocks = utilizedData.reduce((a, b) => a + b.value, 0) / utilizedData.length;
+            const avgFreeBlocks = freeData.reduce((a, b) => a + b.value, 0) / freeData.length;
+
+            const totalGB = snapshot.total_bytes / GB;
+            const avgUsedGB = avgUsedBytes / GB;
+            const avgUnusedGB = totalGB - avgUsedGB; // Completely unused VRAM
+
+            // Calculate ACTUAL KV-cache memory usage using real block size
+            const avgKvCacheAllocatedBytes = avgAllocatedBlocks * blockSizeBytes;
+            const avgKvCacheUtilizedBytes = avgUtilizedBlocks * blockSizeBytes;
+            const avgKvCacheWastedBytes = avgFreeBlocks * blockSizeBytes;
+
+            const avgKvCacheAllocatedGB = avgKvCacheAllocatedBytes / GB;
+            const avgKvCacheWastedGB = avgKvCacheWastedBytes / GB;
+
+            // Calculate time range in hours
+            const timeRangeHours = timeRange / 3600;
+
+            // Costs for the selected time period
+            const totalCostForPeriod = (totalGB / 40) * COST_PER_40GB_PER_HOUR * timeRangeHours;
+
+            // Unused VRAM cost (completely idle memory)
+            const unusedMemoryCostForPeriod = (avgUnusedGB / 40) * COST_PER_40GB_PER_HOUR * timeRangeHours;
+
+            // KV-cache waste cost (allocated but unutilized blocks)
+            const kvWasteCostForPeriod = (avgKvCacheWastedGB / 40) * COST_PER_40GB_PER_HOUR * timeRangeHours;
+
+            // Total waste
+            const totalWasteCostForPeriod = unusedMemoryCostForPeriod + kvWasteCostForPeriod;
+
+            // Project to monthly costs
+            const totalCostPerMonth = (totalGB / 40) * COST_PER_40GB_PER_HOUR * HOURS_PER_MONTH;
+            const unusedMemoryCostPerMonth = (avgUnusedGB / 40) * COST_PER_40GB_PER_HOUR * HOURS_PER_MONTH;
+            const kvWasteCostPerMonth = (avgKvCacheWastedGB / 40) * COST_PER_40GB_PER_HOUR * HOURS_PER_MONTH;
+            const totalWastePerMonth = unusedMemoryCostPerMonth + kvWasteCostPerMonth;
+
+            // KV-cache efficiency
+            const kvEfficiencyPercent = avgAllocatedBlocks > 0
+                ? (avgUtilizedBlocks / avgAllocatedBlocks) * 100
+                : 0;
+
+            return {
+                // Period costs
+                totalCostForPeriod: totalCostForPeriod,
+                totalWasteCostForPeriod: totalWasteCostForPeriod,
+                unusedMemoryCostForPeriod: unusedMemoryCostForPeriod,
+                kvWasteCostForPeriod: kvWasteCostForPeriod,
+                timeRangeHours: timeRangeHours,
+
+                // Monthly projections
+                totalCostPerMonth: totalCostPerMonth,
+                unusedMemoryCostPerMonth: unusedMemoryCostPerMonth,
+                kvWasteCostPerMonth: kvWasteCostPerMonth,
+                totalWastePerMonth: totalWastePerMonth,
+
+                // Efficiency metrics
+                utilizationPercent: (avgUsedGB / totalGB) * 100,
+                kvEfficiencyPercent: kvEfficiencyPercent,
+
+                // Memory stats
+                totalGB: totalGB,
+                avgUsedGB: avgUsedGB,
+                avgUnusedGB: avgUnusedGB,
+                avgKvCacheAllocatedGB: avgKvCacheAllocatedGB,
+                avgKvCacheWastedGB: avgKvCacheWastedGB,
+
+                // Meta
+                blockSizeBytes: blockSizeBytes,
+                blockSizeMB: (blockSizeBytes / MB).toFixed(2)
+            };
+        }
+
         // === CHART CREATION ===
-        function createOrUpdateChart(canvasId, data, color = '#667eea') {
+        function createOrUpdateChart(canvasId, data, color = null) {
             const canvas = document.getElementById(canvasId);
             if (!canvas) return;
+
+            // Use CSS variable if color not specified
+            if (!color) color = getCSSVar('--chart-line-1');
 
             console.log(`[createOrUpdateChart] ${canvasId}: rendering ${data.length} points`);
 
@@ -861,6 +1317,9 @@
             }
 
             console.log(`[createOrUpdateChart] ${canvasId}: creating new chart with ${data.length} points`);
+
+            const gridColor = getCSSVar('--chart-grid');
+            const textColor = getCSSVar('--chart-text');
 
             charts[canvasId] = new Chart(canvas, {
                 type: 'line',
@@ -895,15 +1354,15 @@
                             min: oneHourAgo,
                             max: now,
                             time: { unit: 'minute', displayFormats: { minute: 'HH:mm' } },
-                            grid: { color: 'rgba(0,0,0,0.05)' },
-                            ticks: { color: '#666', font: { size: 11 } }
+                            grid: { color: gridColor },
+                            ticks: { color: textColor, font: { size: 11 } }
                         },
                         y: {
                             beginAtZero: true,
                             max: 100,
-                            grid: { color: 'rgba(0,0,0,0.05)' },
+                            grid: { color: gridColor },
                             ticks: {
-                                color: '#666',
+                                color: textColor,
                                 font: { size: 11 },
                                 callback: v => v + '%'
                             }
@@ -973,7 +1432,7 @@
             const status = card.querySelector('[data-status]');
             const isOnline = snapshot && node.enabled;
             status.innerHTML = `
-                ${isOnline ? '🟢 Online' : '🔴 Offline'} • ${node.host}:${node.port}
+                <span class="status-indicator ${isOnline ? 'online' : 'offline'}"></span>${isOnline ? 'Online' : 'Offline'} • ${node.host}:${node.port}
                 ${snapshot ? ` • ${formatTime(snapshot.timestamp)}` : ''}
             `;
 
@@ -1037,17 +1496,20 @@
             document.getElementById('detailModal').classList.add('active');
 
             const metrics = [
-                { key: 'kv_cache_utilization', title: 'KV-Cache Utilization (%)', color: '#667eea' },
-                { key: 'vllm_memory_utilization', title: 'vLLM Memory Utilization (%)', color: '#764ba2' },
-                { key: 'allocated_blocks', title: 'Allocated Blocks (Total)', color: '#51cf66' },
-                { key: 'utilized_blocks', title: 'Utilized Blocks (In Use)', color: '#228be6' },
-                { key: 'memory_fragmentation', title: 'Memory Fragmentation', color: '#ff6b6b' },
-                { key: 'used_bytes', title: 'Used Memory (Bytes)', color: '#ffd43b' },
-                { key: 'num_processes', title: 'Number of Processes', color: '#339af0' }
+                { key: 'kv_cache_utilization', title: 'KV-Cache Utilization (%)', color: getCSSVar('--chart-line-1') },
+                { key: 'vllm_memory_utilization', title: 'vLLM Memory Utilization (%)', color: getCSSVar('--chart-line-2') },
+                { key: 'allocated_blocks', title: 'Allocated Blocks (Total)', color: getCSSVar('--chart-line-1') },
+                { key: 'utilized_blocks', title: 'Utilized Blocks (In Use)', color: getCSSVar('--chart-line-3') },
+                { key: 'memory_fragmentation', title: 'Memory Fragmentation', color: getCSSVar('--chart-line-4') },
+                { key: 'used_bytes', title: 'Used Memory (Bytes)', color: getCSSVar('--chart-line-5') },
+                { key: 'num_processes', title: 'Number of Processes', color: getCSSVar('--chart-line-6') }
             ];
 
             // Fetch stats for average calculation
             const statsData = await fetchNodeStats(nodeId, currentTimeRange);
+
+            // Calculate costs based on time range
+            const costs = await calculateCosts(nodeId, currentTimeRange);
 
             const controls = `
                 <div style="position: relative;">
@@ -1082,7 +1544,12 @@
                     </div>
                     ${statsData ? `
                     <div class="stats-summary">
-                        <div class="stats-header">📊 Period Statistics (${getTimeRangeLabel(currentTimeRange)})</div>
+                        <div class="stats-header">
+                            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" style="margin-right: 8px; vertical-align: text-bottom;">
+                                <path d="M3 3v18h18M7 16l4-4 4 4 5-5"/>
+                            </svg>
+                            Period Statistics (${getTimeRangeLabel(currentTimeRange)})
+                        </div>
                         <div class="stats-grid">
                             <div class="stat-item">
                                 <span class="stat-label">Avg KV-Cache:</span>
@@ -1111,6 +1578,38 @@
                         </div>
                     </div>
                     ` : ''}
+                    ${costs ? `
+                    <div class="cost-summary">
+                        <div class="cost-header">
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" style="margin-right: 8px;">
+                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm.31-8.86c-1.77-.45-2.34-.94-2.34-1.67 0-.84.79-1.43 2.1-1.43 1.38 0 1.9.66 1.94 1.64h1.71c-.05-1.34-.87-2.57-2.49-2.97V5H10.9v1.69c-1.51.32-2.72 1.3-2.72 2.81 0 1.79 1.49 2.69 3.66 3.21 1.95.46 2.34 1.15 2.34 1.87 0 .53-.39 1.39-2.1 1.39-1.6 0-2.23-.72-2.32-1.64H8.04c.1 1.7 1.36 2.66 2.86 2.97V19h2.34v-1.67c1.52-.29 2.72-1.16 2.73-2.77-.01-2.2-1.9-2.96-3.66-3.42z"/>
+                            </svg>
+                            Cost Estimation (${getTimeRangeLabel(currentTimeRange)}) - Block: ${costs.blockSizeMB} MB
+                        </div>
+                        <div class="cost-grid">
+                            <div class="cost-item">
+                                <div class="cost-label">Total Cost (Period)</div>
+                                <div class="cost-value">$${costs.totalCostForPeriod.toFixed(4)}</div>
+                                <div class="cost-subtext">Monthly: $${costs.totalCostPerMonth.toFixed(2)} (${costs.totalGB.toFixed(1)} GB VRAM)</div>
+                            </div>
+                            <div class="cost-item ${costs.totalWastePerMonth > costs.totalCostPerMonth * 0.2 ? 'cost-warning' : ''}">
+                                <div class="cost-label">Total Waste (Period)</div>
+                                <div class="cost-value">$${costs.totalWasteCostForPeriod.toFixed(4)}</div>
+                                <div class="cost-subtext">Monthly: $${costs.totalWastePerMonth.toFixed(2)} (${((costs.totalWastePerMonth/costs.totalCostPerMonth)*100).toFixed(1)}% of cost)</div>
+                            </div>
+                            <div class="cost-item ${costs.utilizationPercent > 80 ? 'cost-good' : costs.utilizationPercent < 50 ? 'cost-warning' : ''}">
+                                <div class="cost-label">Memory Utilization</div>
+                                <div class="cost-value">${costs.utilizationPercent.toFixed(1)}%</div>
+                                <div class="cost-subtext">Avg: ${costs.avgUsedGB.toFixed(1)} GB used, ${costs.avgUnusedGB.toFixed(1)} GB idle</div>
+                            </div>
+                            <div class="cost-item ${costs.kvEfficiencyPercent > 80 ? 'cost-good' : costs.kvEfficiencyPercent < 50 ? 'cost-warning' : ''}">
+                                <div class="cost-label">KV-Cache Efficiency</div>
+                                <div class="cost-value">${costs.kvEfficiencyPercent.toFixed(1)}%</div>
+                                <div class="cost-subtext">Allocated: ${costs.avgKvCacheAllocatedGB.toFixed(1)} GB, Wasted: ${costs.avgKvCacheWastedGB.toFixed(1)} GB</div>
+                            </div>
+                        </div>
+                    </div>
+                    ` : ''}
                 </div>
             `;
 
@@ -1125,7 +1624,12 @@
 
             const chatHtml = `
                 <div class="detail-chat">
-                    <div class="detail-chat-header">💬 Ask AI about this node</div>
+                    <div class="detail-chat-header">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" style="margin-right: 8px;">
+                            <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/>
+                        </svg>
+                        Ask AI about this node
+                    </div>
                     <div class="detail-chat-suggestions">
                         <button class="suggestion-btn" onclick="askDetailQuestion('Analyze this node performance')">
                             Performance Analysis
@@ -1189,7 +1693,12 @@
                     const statsContainer = document.querySelector('.stats-summary');
                     if (statsContainer) {
                         statsContainer.innerHTML = `
-                            <div class="stats-header">📊 Period Statistics (${getTimeRangeLabel(currentTimeRange)})</div>
+                            <div class="stats-header">
+                                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" style="margin-right: 8px; vertical-align: text-bottom;">
+                                    <path d="M3 3v18h18M7 16l4-4 4 4 5-5"/>
+                                </svg>
+                                Period Statistics (${getTimeRangeLabel(currentTimeRange)})
+                            </div>
                             <div class="stats-grid">
                                 <div class="stat-item">
                                     <span class="stat-label">Avg KV-Cache:</span>
@@ -1220,6 +1729,44 @@
                     }
                 }
 
+                // Update cost summary
+                const costs = await calculateCosts(nodeId, currentTimeRange);
+                if (costs) {
+                    const costContainer = document.querySelector('.cost-summary');
+                    if (costContainer) {
+                        costContainer.innerHTML = `
+                            <div class="cost-header">
+                                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" style="margin-right: 8px;">
+                                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm.31-8.86c-1.77-.45-2.34-.94-2.34-1.67 0-.84.79-1.43 2.1-1.43 1.38 0 1.9.66 1.94 1.64h1.71c-.05-1.34-.87-2.57-2.49-2.97V5H10.9v1.69c-1.51.32-2.72 1.3-2.72 2.81 0 1.79 1.49 2.69 3.66 3.21 1.95.46 2.34 1.15 2.34 1.87 0 .53-.39 1.39-2.1 1.39-1.6 0-2.23-.72-2.32-1.64H8.04c.1 1.7 1.36 2.66 2.86 2.97V19h2.34v-1.67c1.52-.29 2.72-1.16 2.73-2.77-.01-2.2-1.9-2.96-3.66-3.42z"/>
+                                </svg>
+                                Cost Estimation (${getTimeRangeLabel(currentTimeRange)}) - Block: ${costs.blockSizeMB} MB
+                            </div>
+                            <div class="cost-grid">
+                                <div class="cost-item">
+                                    <div class="cost-label">Total Cost (Period)</div>
+                                    <div class="cost-value">$${costs.totalCostForPeriod.toFixed(4)}</div>
+                                    <div class="cost-subtext">Monthly: $${costs.totalCostPerMonth.toFixed(2)} (${costs.totalGB.toFixed(1)} GB VRAM)</div>
+                                </div>
+                                <div class="cost-item ${costs.totalWastePerMonth > costs.totalCostPerMonth * 0.2 ? 'cost-warning' : ''}">
+                                    <div class="cost-label">Total Waste (Period)</div>
+                                    <div class="cost-value">$${costs.totalWasteCostForPeriod.toFixed(4)}</div>
+                                    <div class="cost-subtext">Monthly: $${costs.totalWastePerMonth.toFixed(2)} (${((costs.totalWastePerMonth/costs.totalCostPerMonth)*100).toFixed(1)}% of cost)</div>
+                                </div>
+                                <div class="cost-item ${costs.utilizationPercent > 80 ? 'cost-good' : costs.utilizationPercent < 50 ? 'cost-warning' : ''}">
+                                    <div class="cost-label">Memory Utilization</div>
+                                    <div class="cost-value">${costs.utilizationPercent.toFixed(1)}%</div>
+                                    <div class="cost-subtext">Avg: ${costs.avgUsedGB.toFixed(1)} GB used, ${costs.avgUnusedGB.toFixed(1)} GB idle</div>
+                                </div>
+                                <div class="cost-item ${costs.kvEfficiencyPercent > 80 ? 'cost-good' : costs.kvEfficiencyPercent < 50 ? 'cost-warning' : ''}">
+                                    <div class="cost-label">KV-Cache Efficiency</div>
+                                    <div class="cost-value">${costs.kvEfficiencyPercent.toFixed(1)}%</div>
+                                    <div class="cost-subtext">Allocated: ${costs.avgKvCacheAllocatedGB.toFixed(1)} GB, Wasted: ${costs.avgKvCacheWastedGB.toFixed(1)} GB</div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                }
+
                 // Update charts
                 for (const m of metrics) {
                     const data = await fetchTimeseries(nodeId, m.key, currentTimeRange);
@@ -1237,13 +1784,13 @@
             // Re-fetch data and update all charts
             const nodeId = currentNode.id;
             const metrics = [
-                { key: 'kv_cache_utilization', title: 'KV-Cache Utilization (%)', color: '#667eea' },
-                { key: 'vllm_memory_utilization', title: 'vLLM Memory Utilization (%)', color: '#764ba2' },
-                { key: 'allocated_blocks', title: 'Allocated Blocks (Total)', color: '#51cf66' },
-                { key: 'utilized_blocks', title: 'Utilized Blocks (In Use)', color: '#228be6' },
-                { key: 'memory_fragmentation', title: 'Memory Fragmentation', color: '#ff6b6b' },
-                { key: 'used_bytes', title: 'Used Memory (Bytes)', color: '#ffd43b' },
-                { key: 'num_processes', title: 'Number of Processes', color: '#339af0' }
+                { key: 'kv_cache_utilization', title: 'KV-Cache Utilization (%)', color: getCSSVar('--chart-line-1') },
+                { key: 'vllm_memory_utilization', title: 'vLLM Memory Utilization (%)', color: getCSSVar('--chart-line-2') },
+                { key: 'allocated_blocks', title: 'Allocated Blocks (Total)', color: getCSSVar('--chart-line-1') },
+                { key: 'utilized_blocks', title: 'Utilized Blocks (In Use)', color: getCSSVar('--chart-line-3') },
+                { key: 'memory_fragmentation', title: 'Memory Fragmentation', color: getCSSVar('--chart-line-4') },
+                { key: 'used_bytes', title: 'Used Memory (Bytes)', color: getCSSVar('--chart-line-5') },
+                { key: 'num_processes', title: 'Number of Processes', color: getCSSVar('--chart-line-6') }
             ];
 
             // Update button states
@@ -1258,7 +1805,12 @@
                 const statsContainer = document.querySelector('.stats-summary');
                 if (statsContainer) {
                     statsContainer.innerHTML = `
-                        <div class="stats-header">📊 Period Statistics (${getTimeRangeLabel(currentTimeRange)})</div>
+                        <div class="stats-header">
+                            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" style="margin-right: 8px; vertical-align: text-bottom;">
+                                <path d="M3 3v18h18M7 16l4-4 4 4 5-5"/>
+                            </svg>
+                            Period Statistics (${getTimeRangeLabel(currentTimeRange)})
+                        </div>
                         <div class="stats-grid">
                             <div class="stat-item">
                                 <span class="stat-label">Avg KV-Cache:</span>
@@ -1283,6 +1835,44 @@
                             <div class="stat-item">
                                 <span class="stat-label">Data Points:</span>
                                 <span class="stat-value">${statsData.count}</span>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+
+            // Reload cost summary with new time range
+            const costs = await calculateCosts(nodeId, currentTimeRange);
+            if (costs) {
+                const costContainer = document.querySelector('.cost-summary');
+                if (costContainer) {
+                    costContainer.innerHTML = `
+                        <div class="cost-header">
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" style="margin-right: 8px;">
+                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm.31-8.86c-1.77-.45-2.34-.94-2.34-1.67 0-.84.79-1.43 2.1-1.43 1.38 0 1.9.66 1.94 1.64h1.71c-.05-1.34-.87-2.57-2.49-2.97V5H10.9v1.69c-1.51.32-2.72 1.3-2.72 2.81 0 1.79 1.49 2.69 3.66 3.21 1.95.46 2.34 1.15 2.34 1.87 0 .53-.39 1.39-2.1 1.39-1.6 0-2.23-.72-2.32-1.64H8.04c.1 1.7 1.36 2.66 2.86 2.97V19h2.34v-1.67c1.52-.29 2.72-1.16 2.73-2.77-.01-2.2-1.9-2.96-3.66-3.42z"/>
+                            </svg>
+                            Cost Estimation (${getTimeRangeLabel(currentTimeRange)}) - Block: ${costs.blockSizeMB} MB
+                        </div>
+                        <div class="cost-grid">
+                            <div class="cost-item">
+                                <div class="cost-label">Total Cost (Period)</div>
+                                <div class="cost-value">$${costs.totalCostForPeriod.toFixed(4)}</div>
+                                <div class="cost-subtext">Monthly: $${costs.totalCostPerMonth.toFixed(2)} (${costs.totalGB.toFixed(1)} GB VRAM)</div>
+                            </div>
+                            <div class="cost-item ${costs.totalWastePerMonth > costs.totalCostPerMonth * 0.2 ? 'cost-warning' : ''}">
+                                <div class="cost-label">Total Waste (Period)</div>
+                                <div class="cost-value">$${costs.totalWasteCostForPeriod.toFixed(4)}</div>
+                                <div class="cost-subtext">Monthly: $${costs.totalWastePerMonth.toFixed(2)} (${((costs.totalWastePerMonth/costs.totalCostPerMonth)*100).toFixed(1)}% of cost)</div>
+                            </div>
+                            <div class="cost-item ${costs.utilizationPercent > 80 ? 'cost-good' : costs.utilizationPercent < 50 ? 'cost-warning' : ''}">
+                                <div class="cost-label">Memory Utilization</div>
+                                <div class="cost-value">${costs.utilizationPercent.toFixed(1)}%</div>
+                                <div class="cost-subtext">Avg: ${costs.avgUsedGB.toFixed(1)} GB used, ${costs.avgUnusedGB.toFixed(1)} GB idle</div>
+                            </div>
+                            <div class="cost-item ${costs.kvEfficiencyPercent > 80 ? 'cost-good' : costs.kvEfficiencyPercent < 50 ? 'cost-warning' : ''}">
+                                <div class="cost-label">KV-Cache Efficiency</div>
+                                <div class="cost-value">${costs.kvEfficiencyPercent.toFixed(1)}%</div>
+                                <div class="cost-subtext">Allocated: ${costs.avgKvCacheAllocatedGB.toFixed(1)} GB, Wasted: ${costs.avgKvCacheWastedGB.toFixed(1)} GB</div>
                             </div>
                         </div>
                     `;
@@ -1345,6 +1935,9 @@
 
             console.log(`[createDetailChart] ${canvasId}: Chart has ${chartData.labels.length} labels and ${chartData.datasets[0].data.length} data points`);
 
+            const gridColor = getCSSVar('--chart-grid');
+            const textColor = getCSSVar('--chart-text');
+
             detailCharts[canvasId] = new Chart(canvas, {
                 type: 'line',
                 data: chartData,
@@ -1368,9 +1961,15 @@
                                     hour: 'HH:mm',
                                     day: 'MMM dd'
                                 }
-                            }
+                            },
+                            grid: { color: gridColor },
+                            ticks: { color: textColor }
                         },
-                        y: { beginAtZero: true }
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: gridColor },
+                            ticks: { color: textColor }
+                        }
                     }
                 }
             });
