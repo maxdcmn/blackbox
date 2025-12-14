@@ -36,7 +36,7 @@ var defaultContainerConfig = containerConfig{
 		HeightRatio float64
 		Margin      int
 	}{
-		WidthRatio:  0.4,
+		WidthRatio:  0.35,
 		HeightRatio: 1.0,
 		Margin:      2,
 	},
@@ -45,7 +45,7 @@ var defaultContainerConfig = containerConfig{
 		Height     int
 		Margin     int
 	}{
-		WidthRatio: 0.6,
+		WidthRatio: 0.65,
 		Height:     0,
 		Margin:     2,
 	},

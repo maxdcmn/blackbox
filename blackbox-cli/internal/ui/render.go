@@ -11,7 +11,11 @@ func (m *DashboardModel) renderMetricsGrid(width, height int, focused bool) stri
 	width, height = ensureMin(width, height, 20, 5)
 
 	var b strings.Builder
-	header := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(colorText)).Render("Properties") + "\n"
+	headerColor := colorText
+	if focused {
+		headerColor = colorGreen
+	}
+	header := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(headerColor)).Render("Properties") + "\n"
 	b.WriteString(header + "\n")
 
 	var rows []string
@@ -151,7 +155,11 @@ func (m *DashboardModel) renderEndpointsPanel(width, height int, focused bool) s
 	width, height = ensureMin(width, height, 10, 3)
 
 	var b strings.Builder
-	header := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(colorText)).Render("Endpoints")
+	headerColor := colorText
+	if focused {
+		headerColor = colorGreen
+	}
+	header := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(headerColor)).Render("Endpoints")
 	b.WriteString(header + "\n\n")
 
 	innerHeight := max(1, height-3)
