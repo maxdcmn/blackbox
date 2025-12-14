@@ -1,0 +1,44 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	# Manually configure to allow FetchContent downloads
+	mkdir -p obj-x86_64-linux-gnu
+	cd obj-x86_64-linux-gnu && \
+		cmake -DCMAKE_INSTALL_PREFIX=/usr \
+		      -DCMAKE_BUILD_TYPE=Release \
+		      -DCMAKE_INSTALL_SYSCONFDIR=/etc \
+		      -DCMAKE_INSTALL_LOCALSTATEDIR=/var \
+		      -DCMAKE_INSTALL_RUNSTATEDIR=/run \
+		      -DCMAKE_INSTALL_LIBDIR=lib/x86_64-linux-gnu \
+		      -DFETCHCONTENT_FULLY_DISCONNECTED=OFF \
+		      ..
+
+override_dh_auto_build:
+	dh_auto_build
+
+override_dh_auto_install:
+	dh_auto_install
+	# Install systemd service
+	install -d $(CURDIR)/debian/blackbox-server/lib/systemd/system
+	install -m 644 $(CURDIR)/debian/blackbox-server.service \
+		$(CURDIR)/debian/blackbox-server/lib/systemd/system/blackbox-server.service
+	# Install Python scripts
+	install -d $(CURDIR)/debian/blackbox-server/usr/lib/blackbox-server
+	install -m 755 $(CURDIR)/py_script/parse_vram.py \
+		$(CURDIR)/debian/blackbox-server/usr/lib/blackbox-server/
+	install -m 755 $(CURDIR)/py_script/chat_qwen.py \
+		$(CURDIR)/debian/blackbox-server/usr/lib/blackbox-server/
+	# Create symlink for parse_vram
+	install -d $(CURDIR)/debian/blackbox-server/usr/bin
+	ln -s /usr/lib/blackbox-server/parse_vram.py \
+		$(CURDIR)/debian/blackbox-server/usr/bin/parse-vram
+	ln -s /usr/lib/blackbox-server/chat_qwen.py \
+		$(CURDIR)/debian/blackbox-server/usr/bin/chat-qwen
+
+override_dh_install:
+	dh_install
+
+

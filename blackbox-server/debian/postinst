@@ -1,0 +1,15 @@
+#!/bin/bash
+set -e
+
+# Enable and start systemd service
+if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload
+    systemctl enable blackbox-server.service
+    systemctl start blackbox-server.service || true
+fi
+
+#DEBHELPER#
+
+exit 0
+
+

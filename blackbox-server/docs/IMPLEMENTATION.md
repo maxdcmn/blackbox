@@ -135,7 +135,8 @@ struct DetailedVRAMInfo {
     std::vector<MemoryBlock> blocks;    // Memory blocks
     std::vector<ProcessMemory> processes; // GPU processes
     std::vector<ThreadInfo> threads;    // Thread info
-    unsigned int active_blocks;         // Active memory blocks
+    unsigned int allocated_blocks;     // Allocated memory blocks
+    unsigned int utilized_blocks;      // Utilized memory blocks
     unsigned int free_blocks;           // Free memory blocks
     unsigned long long atomic_allocations; // Total allocations
     double fragmentation_ratio;         // Memory fragmentation
@@ -175,7 +176,8 @@ Returns current VRAM metrics as JSON.
   "free_bytes": 25769803776,
   "reserved_bytes": 8589934592,
   "used_percent": 25.00,
-  "active_blocks": 1,
+  "allocated_blocks": 1,
+  "utilized_blocks": 0,
   "free_blocks": 0,
   "atomic_allocations_bytes": 8589934592,
   "fragmentation_ratio": 0.25,
@@ -228,7 +230,8 @@ Returns current VRAM metrics as JSON.
 | `free_bytes` | number | Free GPU memory |
 | `reserved_bytes` | number | Reserved GPU memory |
 | `used_percent` | number | Memory usage percentage (0-100) |
-| `active_blocks` | number | Number of active memory blocks |
+| `allocated_blocks` | number | Number of allocated memory blocks |
+| `utilized_blocks` | number | Number of utilized memory blocks |
 | `free_blocks` | number | Number of free memory blocks |
 | `atomic_allocations_bytes` | number | Total atomic memory allocations |
 | `fragmentation_ratio` | number | Memory fragmentation (0-1) |

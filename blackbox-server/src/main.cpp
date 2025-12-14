@@ -74,7 +74,7 @@ struct DetailedVRAMInfo {
     // Note: threads are application-level threads, not GPU CUDA threads
     // For GPU thread/block/atomic metrics, use NVIDIA Nsight Compute (NCU) profiler
     std::vector<ThreadInfo> threads;
-    unsigned int active_blocks;  // GPU memory blocks (allocated)
+    unsigned int allocated_blocks;  // GPU memory blocks (allocated)
     unsigned int utilized_blocks; // GPU memory blocks (actively used)
     unsigned int free_blocks;    // GPU memory blocks (allocated but unused)
     // Atomic allocations: sum of all process memory from NVML
@@ -84,7 +84,11 @@ struct DetailedVRAMInfo {
     std::map<unsigned int, NsightMetrics> nsight_metrics;
 };
 
+#ifdef NVML_AVAILABLE
 static nvmlDevice_t g_device = nullptr;
+#else
+static void* g_device = nullptr;
+#endif
 static bool g_nvml_initialized = false;
 
 bool initNVML() {
@@ -254,7 +258,7 @@ VLLMBlockData fetchVLLMBlockData() {
 // - Total/used/free VRAM (system-level)
 // - Process-level VRAM usage by PID
 DetailedVRAMInfo getDetailedVRAMUsage() {
-    DetailedVRAMInfo detailed = {0, 0, 0, 0, {}, {}, {}, 0, 0, 0, 0, 0.0};
+    DetailedVRAMInfo detailed = {0, 0, 0, 0, {}, {}, {}, 0, 0, 0, 0ULL, 0.0, {}};
     if (!initNVML()) return detailed;
 #ifdef NVML_AVAILABLE
     nvmlMemory_t memory;
@@ -309,7 +313,7 @@ DetailedVRAMInfo getDetailedVRAMUsage() {
     // Get vLLM block allocation data (only for allocated blocks) - fetch before processing Nsight metrics
     VLLMBlockData vllm_blocks = fetchVLLMBlockData();
     if (vllm_blocks.available) {
-        detailed.active_blocks = vllm_blocks.num_gpu_blocks;
+        detailed.allocated_blocks = vllm_blocks.num_gpu_blocks;
         // free_blocks will be calculated after we determine utilization
         
         // Calculate block size from NVML GPU memory data (not hardcoded)
@@ -346,7 +350,7 @@ DetailedVRAMInfo getDetailedVRAMUsage() {
         }
     } else {
         // No vLLM data available
-        detailed.active_blocks = 0;
+        detailed.allocated_blocks = 0;
         detailed.utilized_blocks = 0;
         detailed.free_blocks = 0;
     }
@@ -361,7 +365,7 @@ DetailedVRAMInfo getDetailedVRAMUsage() {
         );
         
         // Ensure we don't exceed allocated blocks
-        actual_utilized = std::min(actual_utilized, detailed.active_blocks);
+        actual_utilized = std::min(actual_utilized, detailed.allocated_blocks);
         
         // Mark blocks as utilized
         for (size_t j = 0; j < detailed.blocks.size() && j < actual_utilized; ++j) {
@@ -370,15 +374,15 @@ DetailedVRAMInfo getDetailedVRAMUsage() {
         }
         
         detailed.utilized_blocks = utilized_count;
-        std::cout << "[DEBUG] Block utilization: " << utilized_count << " / " << detailed.active_blocks 
+        std::cout << "[DEBUG] Block utilization: " << utilized_count << " / " << detailed.allocated_blocks 
                   << " blocks utilized (" << (vllm_blocks.kv_cache_usage_perc * 100.0) << "%)" << std::endl;
     } else {
         detailed.utilized_blocks = 0;
     }
     
     // Calculate free blocks: allocated but not utilized
-    if (detailed.active_blocks > 0) {
-        detailed.free_blocks = detailed.active_blocks - detailed.utilized_blocks;
+    if (detailed.allocated_blocks > 0) {
+        detailed.free_blocks = detailed.allocated_blocks - detailed.utilized_blocks;
     }
 
     // Set atomic allocations to sum of all process memory allocations from NVML
@@ -500,7 +504,7 @@ std::string createDetailedResponse(const DetailedVRAMInfo& info) {
         << R"(,"free_bytes":)" << info.free
         << R"(,"reserved_bytes":)" << info.reserved
         << R"(,"used_percent":)" << std::fixed << std::setprecision(2) << usedPercent
-        << R"(,"active_blocks":)" << info.active_blocks
+        << R"(,"allocated_blocks":)" << info.allocated_blocks
         << R"(,"utilized_blocks":)" << info.utilized_blocks
         << R"(,"free_blocks":)" << info.free_blocks
         << R"(,"atomic_allocations_bytes":)" << info.atomic_allocations

@@ -1,0 +1,93 @@
+# Blackbox Server - Debian Package
+
+## Installation
+
+```bash
+sudo apt install ./blackbox-server_1.0.0-1_amd64.deb
+```
+
+## Service Management
+
+After installation, the service is automatically enabled and started.
+
+### Commands
+
+**Start service:**
+```bash
+sudo systemctl start blackbox-server
+```
+
+**Stop service:**
+```bash
+sudo systemctl stop blackbox-server
+```
+
+**Restart service:**
+```bash
+sudo systemctl restart blackbox-server
+```
+
+**Check status:**
+```bash
+sudo systemctl status blackbox-server
+```
+
+**View logs:**
+```bash
+sudo journalctl -u blackbox-server -f
+```
+
+**Enable on boot:**
+```bash
+sudo systemctl enable blackbox-server
+```
+
+**Disable on boot:**
+```bash
+sudo systemctl disable blackbox-server
+```
+
+## Configuration
+
+Edit the service file to change port or other settings:
+```bash
+sudo systemctl edit --full blackbox-server
+```
+
+Default port: **6767**
+
+## Usage
+
+**Query VRAM metrics:**
+```bash
+curl http://localhost:6767/vram
+```
+
+**Use parser script:**
+```bash
+parse-vram
+parse-vram --stream
+parse-vram --url http://your-server:6767/vram
+```
+
+**Chat with vLLM:**
+```bash
+chat-qwen --url http://your-vllm-server:8000
+```
+
+## Uninstallation
+
+```bash
+sudo apt remove blackbox-server
+```
+
+## Building from Source
+
+See `debian/PUBLISH.md` for detailed build and publishing instructions.
+
+**Quick build:**
+```bash
+cd blackbox-server
+dpkg-buildpackage -us -uc
+```
+

@@ -33,7 +33,7 @@ Content-Type: application/json
   "free_bytes": 8388608000,
   "reserved_bytes": 34561064960,
   "used_percent": 80.45,
-  "active_blocks": 14401,
+  "allocated_blocks": 14401,
   "utilized_blocks": 0,
   "free_blocks": 14401,
   "atomic_allocations_bytes": 31299958784,
@@ -83,9 +83,9 @@ Content-Type: application/json
 | `free_bytes` | integer | Free GPU memory |
 | `reserved_bytes` | integer | Reserved GPU memory |
 | `used_percent` | float | Memory usage percentage (0-100) |
-| `active_blocks` | integer | Total allocated KV cache blocks (from vLLM) |
+| `allocated_blocks` | integer | Total allocated KV cache blocks (from vLLM) |
 | `utilized_blocks` | integer | Blocks actively storing data (calculated from vLLM's `kv_cache_usage_perc`) |
-| `free_blocks` | integer | Allocated but unused blocks (calculated: `active_blocks - utilized_blocks`) |
+| `free_blocks` | integer | Allocated but unused blocks (calculated: `allocated_blocks - utilized_blocks`) |
 | `atomic_allocations_bytes` | integer | Total atomic memory allocations |
 | `fragmentation_ratio` | float | Memory fragmentation ratio (0-1) |
 | `processes` | array | GPU processes array |
@@ -142,7 +142,7 @@ Content-Type: application/json
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `block_id` | integer | Block identifier (0 to `active_blocks-1`) |
+| `block_id` | integer | Block identifier (0 to `allocated_blocks-1`) |
 | `address` | integer | Memory address (0 if unknown, vLLM doesn't expose addresses) |
 | `size` | integer | Block size in bytes (calculated from NVML process memory / num_blocks) |
 | `type` | string | Block type ("kv_cache" for vLLM blocks) |
@@ -187,16 +187,16 @@ curl http://localhost:6767/vram | jq
 **Data Sources:**
 
 - **NVML (NVIDIA Management Library)**: System-level GPU memory (`total_bytes`, `used_bytes`, `free_bytes`), process-level memory usage (`processes[]`)
-- **vLLM Metrics API**: Block allocation data (`active_blocks` from `vllm:cache_config_info`), KV cache utilization (`utilized` from `vllm:kv_cache_usage_perc`)
+- **vLLM Metrics API**: Block allocation data (`allocated_blocks` from `vllm:cache_config_info`), KV cache utilization (`utilized` from `vllm:kv_cache_usage_perc`)
 - **Nsight Compute (NCU)**: GPU activity metrics (`atomic_operations`, `threads_per_block`, `occupancy`, `dram_read_bytes`, `dram_write_bytes`)
-- **Calculated Fields**: `free_blocks` (active_blocks - utilized), `fragmentation_ratio` (1 - free/total), `block.size` (process_memory / num_blocks)
+- **Calculated Fields**: `free_blocks` (allocated_blocks - utilized), `fragmentation_ratio` (1 - free/total), `block.size` (process_memory / num_blocks)
 
 **Key Metrics:**
 
-- **`active_blocks`**: Total blocks vLLM has allocated for KV cache (from vLLM)
+- **`allocated_blocks`**: Total blocks vLLM has allocated for KV cache (from vLLM)
 - **`utilized_blocks`**: Count of blocks actively storing data (calculated from vLLM's `kv_cache_usage_perc`)
 - **`utilized`** (per block): Whether block is actively storing data (boolean in `blocks[]` array)
-- **`free_blocks`**: Allocated but unused blocks = `active_blocks - utilized_blocks`
+- **`free_blocks`**: Allocated but unused blocks = `allocated_blocks - utilized_blocks`
 
 ---
 

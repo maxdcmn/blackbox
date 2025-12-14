@@ -1,0 +1,14 @@
+#!/bin/bash
+set -e
+
+# Stop service before removal
+if [ -d /run/systemd/system ]; then
+    systemctl stop blackbox-server.service || true
+    systemctl disable blackbox-server.service || true
+fi
+
+#DEBHELPER#
+
+exit 0
+
+

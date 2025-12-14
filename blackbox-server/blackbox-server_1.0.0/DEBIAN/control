@@ -1,0 +1,14 @@
+Package: blackbox-server
+Version: 1.0.0
+Section: utils
+Priority: optional
+Architecture: amd64
+Maintainer: Blackbox Team <blackbox@example.com>
+Installed-Size: 556
+Depends: libboost-system1.84.0 | libboost-system1.83.0 | libboost-system1.82.0 | libboost-system1.81.0 | libboost-system1.80.0 | libboost-system1.74.0, curl, python3, python3-requests
+Recommends: nvidia-utils-535 | nvidia-utils-525 | nvidia-utils-520, nvidia-nsight-compute
+Description: GPU VRAM monitoring server for vLLM deployments
+ Blackbox Server provides real-time GPU VRAM monitoring with NVML and
+ Nsight Compute integration. It exposes RESTful APIs for querying GPU
+ memory usage, process-level allocations, and block-level utilization
+ metrics for vLLM inference servers.
