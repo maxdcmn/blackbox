@@ -16,6 +16,7 @@ import (
 
 const (
 	maxHistorySize = 50
+	maxThreads     = 10
 	version        = "0.1.0"
 	gbDivisor      = 1024 * 1024 * 1024
 	colorFocused   = "46"
@@ -361,7 +362,11 @@ func (m *DashboardModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *DashboardModel) handleDown() (tea.Model, tea.Cmd) {
 	if m.focusedPanel == 1 {
 		if m.last != nil {
-			totalRows := 5 + len(m.last.Processes) + len(m.last.Threads)
+			threadCount := min(len(m.last.Threads), maxThreads)
+			if len(m.last.Threads) > maxThreads {
+				threadCount++
+			}
+			totalRows := 5 + len(m.last.Processes) + threadCount
 			sizes := calculateContainerSizes(m.width, m.height)
 			maxVisibleRows := sizes.MetricsGrid.Height - 2
 			if totalRows > maxVisibleRows && m.metricsScroll < totalRows-maxVisibleRows {
@@ -485,15 +490,21 @@ func (m *DashboardModel) renderMetricsGrid(width, height int, focused bool) stri
 		}
 
 		if len(m.last.Threads) > 0 {
+			threadCount := len(m.last.Threads)
+			displayCount := min(threadCount, maxThreads)
 			rows = append(rows, fmt.Sprintf("%s %s",
 				labelStyle.Render("Threads:"),
-				styleColor(colorCyan).Render(fmt.Sprintf("%d", len(m.last.Threads)))))
-			for _, thread := range m.last.Threads {
+				styleColor(colorCyan).Render(fmt.Sprintf("%d", threadCount))))
+			for i := 0; i < displayCount; i++ {
+				thread := m.last.Threads[i]
 				threadGB := float64(thread.AllocatedBytes) / gbDivisor
 				rows = append(rows, fmt.Sprintf("%s %s %s",
 					labelStyle.Render(fmt.Sprintf("  Thread %d:", thread.ThreadID)),
 					styleColor(colorItalic).Render(thread.State),
 					styleColor(colorOrange).Render(fmt.Sprintf("%.2f GB", threadGB))))
+			}
+			if threadCount > maxThreads {
+				rows = append(rows, styleColor(colorDim).Render(fmt.Sprintf("  ... and %d more", threadCount-maxThreads)))
 			}
 		}
 
