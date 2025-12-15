@@ -19,6 +19,7 @@
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
+#include <cctype>
 #include <absl/strings/str_cat.h>
 #include <absl/strings/str_format.h>
 
@@ -66,15 +67,16 @@ struct DetailedVRAMInfo {
     unsigned long long used;
     unsigned long long free;
     unsigned long long reserved;
-    // Note: blocks are vLLM KV cache blocks (application-level), not GPU CUDA blocks
+    // Note: blocks are GPU memory blocks (application-level), not GPU CUDA blocks
     std::vector<MemoryBlock> blocks;
     // Process-level VRAM usage from NVML (system-level monitoring)
     std::vector<ProcessMemory> processes;
-    // Note: threads are application-level request threads from vLLM, not GPU CUDA threads
+    // Note: threads are application-level threads, not GPU CUDA threads
     // For GPU thread/block/atomic metrics, use NVIDIA Nsight Compute (NCU) profiler
     std::vector<ThreadInfo> threads;
-    unsigned int active_blocks;  // vLLM KV cache blocks
-    unsigned int free_blocks;    // vLLM KV cache blocks
+    unsigned int allocated_blocks;  // GPU memory blocks (allocated)
+    unsigned int utilized_blocks; // GPU memory blocks (actively used)
+    unsigned int free_blocks;    // GPU memory blocks (allocated but unused)
     // Atomic allocations: sum of all process memory from NVML
     unsigned long long atomic_allocations;
     double fragmentation_ratio;
@@ -82,23 +84,63 @@ struct DetailedVRAMInfo {
     std::map<unsigned int, NsightMetrics> nsight_metrics;
 };
 
+#ifdef NVML_AVAILABLE
 static nvmlDevice_t g_device = nullptr;
+#else
+static void* g_device = nullptr;
+#endif
 static bool g_nvml_initialized = false;
 
 bool initNVML() {
     if (g_nvml_initialized) return true;
 #ifdef NVML_AVAILABLE
-    if (nvmlInit() == NVML_SUCCESS) {
-        unsigned int deviceCount;
-        if (nvmlDeviceGetCount(&deviceCount) == NVML_SUCCESS && deviceCount > 0) {
-            if (nvmlDeviceGetHandleByIndex(0, &g_device) == NVML_SUCCESS) {
-                g_nvml_initialized = true;
-                return true;
-            }
+    nvmlReturn_t result = nvmlInit();
+    if (result != NVML_SUCCESS) {
+        std::cerr << "[NVML] Initialization failed (error code: " << result << ")" << std::endl;
+        if (result == NVML_ERROR_DRIVER_NOT_LOADED) {
+            std::cerr << "[NVML] Driver not loaded. Try: sudo modprobe nvidia" << std::endl;
+        } else if (result == NVML_ERROR_LIBRARY_NOT_FOUND) {
+            std::cerr << "[NVML] Library not found. Install: sudo apt install -y nvidia-utils-535" << std::endl;
+        } else if (result == NVML_ERROR_NO_PERMISSION) {
+            std::cerr << "[NVML] Permission denied. Try running as root or add user to video group" << std::endl;
+        } else {
+            std::cerr << "[NVML] Check: 1) NVIDIA drivers installed? 2) GPU present? 3) nvidia-smi works?" << std::endl;
+            std::cerr << "[NVML] If 'Driver/library version mismatch': Reboot or reinstall drivers" << std::endl;
         }
+        return false;
     }
-#endif
+    
+    unsigned int deviceCount = 0;
+    result = nvmlDeviceGetCount(&deviceCount);
+    if (result != NVML_SUCCESS) {
+        std::cerr << "[NVML] Failed to get device count (error code: " << result << ")" << std::endl;
+        nvmlShutdown();
+        return false;
+    }
+    
+    if (deviceCount == 0) {
+        std::cerr << "[NVML] No GPU devices found" << std::endl;
+        nvmlShutdown();
+        return false;
+    }
+    
+    std::cout << "[NVML] Found " << deviceCount << " GPU device(s)" << std::endl;
+    
+    result = nvmlDeviceGetHandleByIndex(0, &g_device);
+    if (result != NVML_SUCCESS) {
+        std::cerr << "[NVML] Failed to get device handle (error code: " << result << ")" << std::endl;
+        nvmlShutdown();
+        return false;
+    }
+    
+    g_nvml_initialized = true;
+    std::cout << "[NVML] Initialized successfully" << std::endl;
+    return true;
+#else
+    std::cerr << "[NVML] NVML not available (compiled without NVML support)" << std::endl;
+    std::cerr << "[NVML] Install: sudo apt install -y libnvidia-ml-dev" << std::endl;
     return false;
+#endif
 }
 
 void shutdownNVML() {
@@ -111,10 +153,133 @@ void shutdownNVML() {
     }
 }
 
-void parseVLLMMetrics(const std::string& metrics, DetailedVRAMInfo& info);
 NsightMetrics getNsightMetrics(unsigned int pid);
 
-// Get detailed VRAM usage combining NVML (system-level) and vLLM metrics (application-level)
+// Fetch vLLM block allocation data (minimal - only blocks)
+struct VLLMBlockData {
+    unsigned int num_gpu_blocks;
+    unsigned long long block_size;
+    double kv_cache_usage_perc;  // KV cache usage percentage (0.0-1.0)
+    bool available;
+};
+
+VLLMBlockData fetchVLLMBlockData() {
+    VLLMBlockData data{0, 0, 0.0, false};
+    
+    // Try to fetch from vLLM metrics endpoint
+    FILE* curl = popen("curl -s --max-time 1 http://localhost:8000/metrics 2>/dev/null", "r");
+    if (!curl) return data;
+    
+    char line[4096];
+    bool found_kv_usage = false;
+    while (fgets(line, sizeof(line), curl)) {
+        std::string line_str(line);
+        
+        // Parse from vllm:cache_config_info metric (num_gpu_blocks is in labels)
+        size_t pos = line_str.find("vllm:cache_config_info");
+        if (pos != std::string::npos) {
+            // Extract num_gpu_blocks from labels: num_gpu_blocks="14401"
+            size_t num_blocks_pos = line_str.find("num_gpu_blocks=\"", pos);
+            if (num_blocks_pos != std::string::npos) {
+                num_blocks_pos += 16; // Skip "num_gpu_blocks=\""
+                size_t num_blocks_end = line_str.find("\"", num_blocks_pos);
+                if (num_blocks_end != std::string::npos) {
+                    std::string value_str = line_str.substr(num_blocks_pos, num_blocks_end - num_blocks_pos);
+                    // Extract only digits
+                    std::string digits;
+                    for (char c : value_str) {
+                        if (std::isdigit(c)) digits += c;
+                    }
+                    if (!digits.empty()) {
+                        data.num_gpu_blocks = std::stoi(digits);
+                    }
+                }
+            }
+            
+            // Extract block_size from labels: block_size="16" (in tokens, need to convert to bytes)
+            size_t block_size_pos = line_str.find("block_size=\"", pos);
+            if (block_size_pos != std::string::npos) {
+                block_size_pos += 12; // Skip "block_size=\""
+                size_t block_size_end = line_str.find("\"", block_size_pos);
+                if (block_size_end != std::string::npos) {
+                    std::string value_str = line_str.substr(block_size_pos, block_size_end - block_size_pos);
+                    std::string digits;
+                    for (char c : value_str) {
+                        if (std::isdigit(c)) digits += c;
+                    }
+                    if (!digits.empty()) {
+                        // block_size="16" is tokens per block, but actual memory block size is ~16KB
+                        // vLLM uses fixed-size blocks for KV cache (typically 16KB regardless of token count)
+                        // We ignore the token count and use the standard vLLM block size
+                        // (The token count is for logical organization, not physical memory size)
+                    }
+                }
+            }
+        }
+        
+        // Parse kv_cache_usage_perc from vLLM metrics (separate metric, not in cache_config_info)
+        // Format: vllm:kv_cache_usage_perc{engine="0",model_name="Qwen/Qwen2.5-7B-Instruct"} 0.0
+        size_t kv_usage_pos = line_str.find("vllm:kv_cache_usage_perc");
+        if (kv_usage_pos != std::string::npos) {
+            found_kv_usage = true;
+            // Find the value after the closing brace
+            size_t brace_end = line_str.find("}", kv_usage_pos);
+            if (brace_end != std::string::npos) {
+                size_t value_start = line_str.find_first_not_of(" \t", brace_end + 1);
+                if (value_start != std::string::npos) {
+                    size_t value_end = line_str.find_first_of(" \n\r", value_start);
+                    if (value_end == std::string::npos) {
+                        // Try to find end of line if no space found
+                        value_end = line_str.length();
+                    }
+                    if (value_end > value_start) {
+                        std::string value_str = line_str.substr(value_start, value_end - value_start);
+                        try {
+                            data.kv_cache_usage_perc = std::stod(value_str);
+                            // vLLM returns 0-1 range, ensure it's in that range
+                            if (data.kv_cache_usage_perc < 0.0) data.kv_cache_usage_perc = 0.0;
+                            if (data.kv_cache_usage_perc > 1.0) data.kv_cache_usage_perc = 1.0;
+                            std::cout << "[DEBUG] Found and parsed kv_cache_usage_perc: '" << value_str 
+                                      << "' -> " << data.kv_cache_usage_perc << " (" 
+                                      << (data.kv_cache_usage_perc * 100.0) << "%)" << std::endl;
+                        } catch (const std::exception& e) {
+                            std::cout << "[DEBUG] Failed to parse kv_cache_usage_perc value: '" 
+                                      << value_str << "' error: " << e.what() << std::endl;
+                            data.kv_cache_usage_perc = 0.0;
+                        }
+                    } else {
+                        std::cout << "[DEBUG] kv_cache_usage_perc: value_end <= value_start" << std::endl;
+                    }
+                } else {
+                    std::cout << "[DEBUG] kv_cache_usage_perc: no value_start found after }" << std::endl;
+                }
+            } else {
+                std::cout << "[DEBUG] kv_cache_usage_perc: no closing brace found" << std::endl;
+            }
+        }
+    }
+    
+    pclose(curl);
+    
+    if (data.num_gpu_blocks > 0) {
+        data.available = true;
+        // Block size will be calculated from actual GPU memory usage in getDetailedVRAMUsage()
+        // This is just a fallback default
+        data.block_size = 16 * 1024; // 16KB fallback (will be overridden by calculation)
+        if (!found_kv_usage) {
+            std::cout << "[DEBUG] WARNING: kv_cache_usage_perc metric not found in vLLM metrics!" << std::endl;
+        }
+        std::cout << "[DEBUG] vLLM blocks: num_gpu_blocks=" << data.num_gpu_blocks 
+                  << ", kv_cache_usage_perc=" << data.kv_cache_usage_perc 
+                  << " (" << (data.kv_cache_usage_perc * 100.0) << "%)" << std::endl;
+    } else {
+        std::cout << "[DEBUG] vLLM block data not available" << std::endl;
+    }
+    
+    return data;
+}
+
+// Get detailed VRAM usage from NVML (system-level)
 // 
 // NVML Limitations (what we CANNOT get):
 // - Per-thread GPU metrics (CUDA threads)
@@ -128,13 +293,12 @@ NsightMetrics getNsightMetrics(unsigned int pid);
 // What we CAN get from NVML:
 // - Total/used/free VRAM (system-level)
 // - Process-level VRAM usage by PID
-// 
-// What we get from vLLM metrics:
-// - KV cache block counts (application-level memory blocks)
-// - Request counts (application-level threads)
-DetailedVRAMInfo getDetailedVRAMUsage(const std::string& vllm_metrics = "") {
-    DetailedVRAMInfo detailed = {0, 0, 0, 0, {}, {}, {}, 0, 0, 0, 0.0};
-    if (!initNVML()) return detailed;
+DetailedVRAMInfo getDetailedVRAMUsage() {
+    DetailedVRAMInfo detailed = {0, 0, 0, 0, {}, {}, {}, 0, 0, 0, 0ULL, 0.0, {}};
+    if (!initNVML()) {
+        std::cerr << "[DEBUG] NVML not initialized, returning empty data" << std::endl;
+        return detailed;
+    }
 #ifdef NVML_AVAILABLE
     nvmlMemory_t memory;
     if (nvmlDeviceGetMemoryInfo(g_device, &memory) == NVML_SUCCESS) {
@@ -158,22 +322,25 @@ DetailedVRAMInfo getDetailedVRAMUsage(const std::string& vllm_metrics = "") {
             // Sum up all process memory allocations (atomic allocations per process)
             total_atomic_allocations += processes[i].usedGpuMemory;
             
-            char name[256] = {0};
-            FILE* fp = fopen(absl::StrCat("/proc/", pm.pid, "/comm").c_str(), "r");
-            if (fp) {
-                fgets(name, sizeof(name), fp);
-                fclose(fp);
-                pm.name = name;
-                if (!pm.name.empty() && pm.name.back() == '\n') {
-                    pm.name.pop_back();
-                }
-            } else {
-                pm.name = "unknown";
-            }
+                   char name[256] = {0};
+                   FILE* fp = fopen(absl::StrCat("/proc/", pm.pid, "/comm").c_str(), "r");
+                   if (fp) {
+                       if (fgets(name, sizeof(name), fp)) {
+                           pm.name = name;
+                           if (!pm.name.empty() && pm.name.back() == '\n') {
+                               pm.name.pop_back();
+                           }
+                       } else {
+                           pm.name = "unknown";
+                       }
+                       fclose(fp);
+                   } else {
+                       pm.name = "unknown";
+                   }
             detailed.processes.push_back(pm);
             
             // Get Nsight Compute metrics for this PID
-            // This provides actual GPU block activity data
+            // This provides utilization data (which blocks are actively used)
             NsightMetrics nsight = getNsightMetrics(pm.pid);
             if (nsight.available) {
                 detailed.nsight_metrics[pm.pid] = nsight;
@@ -185,305 +352,94 @@ DetailedVRAMInfo getDetailedVRAMUsage(const std::string& vllm_metrics = "") {
         }
     }
 
+    // Get vLLM block allocation data (only for allocated blocks) - fetch before processing Nsight metrics
+    VLLMBlockData vllm_blocks = fetchVLLMBlockData();
+    if (vllm_blocks.available) {
+        detailed.allocated_blocks = vllm_blocks.num_gpu_blocks;
+        // free_blocks will be calculated after we determine utilization
+        
+        // Calculate block size from NVML GPU memory data (not hardcoded)
+        // Block size = process GPU memory / number of blocks
+        // This gives actual GPU memory allocation per block from NVIDIA APIs
+        unsigned long long calculated_block_size = vllm_blocks.block_size; // Default fallback
+        for (const auto& pm : detailed.processes) {
+            // Find vLLM process
+            if (pm.name.find("python") != std::string::npos || 
+                pm.name.find("vllm") != std::string::npos ||
+                pm.name.find("VLLM") != std::string::npos) {
+                // Calculate from actual NVML GPU memory allocation
+                if (vllm_blocks.num_gpu_blocks > 0 && pm.used_bytes > 0) {
+                    calculated_block_size = pm.used_bytes / vllm_blocks.num_gpu_blocks;
+                    std::cout << "[DEBUG] Block size from NVML GPU memory: " 
+                              << calculated_block_size << " bytes (process: " 
+                              << pm.used_bytes << " bytes / " 
+                              << vllm_blocks.num_gpu_blocks << " blocks)" << std::endl;
+                }
+                break;
+            }
+        }
+        
+        // Populate blocks array with allocated blocks
+        for (unsigned int i = 0; i < vllm_blocks.num_gpu_blocks; ++i) {
+            MemoryBlock block;
+            block.block_id = i;
+            block.address = 0; // vLLM doesn't expose addresses
+            block.size = calculated_block_size; // Use calculated size from GPU memory
+            block.type = "kv_cache"; // vLLM blocks are primarily KV cache
+            block.allocated = true;
+            block.utilized = false; // Will be set by Nsight Compute metrics below
+            detailed.blocks.push_back(block);
+        }
+    } else {
+        // No vLLM data available
+        detailed.allocated_blocks = 0;
+        detailed.utilized_blocks = 0;
+        detailed.free_blocks = 0;
+    }
+    
+    // Mark blocks as utilized based on vLLM's kv_cache_usage_perc (accurate, from vLLM's internal state)
+    unsigned int utilized_count = 0;
+    if (!detailed.blocks.empty() && vllm_blocks.available) {
+        // Calculate actual utilized blocks from vLLM's kv_cache_usage_perc
+        // This is the real utilization from vLLM's block manager, not an estimate
+        unsigned int actual_utilized = static_cast<unsigned int>(
+            vllm_blocks.num_gpu_blocks * vllm_blocks.kv_cache_usage_perc + 0.5  // Round to nearest
+        );
+        
+        // Ensure we don't exceed allocated blocks
+        actual_utilized = std::min(actual_utilized, detailed.allocated_blocks);
+        
+        // Mark blocks as utilized
+        for (size_t j = 0; j < detailed.blocks.size() && j < actual_utilized; ++j) {
+            detailed.blocks[j].utilized = true;
+            utilized_count++;
+        }
+        
+        detailed.utilized_blocks = utilized_count;
+        std::cout << "[DEBUG] Block utilization: " << utilized_count << " / " << detailed.allocated_blocks 
+                  << " blocks utilized (" << (vllm_blocks.kv_cache_usage_perc * 100.0) << "%)" << std::endl;
+    } else {
+        detailed.utilized_blocks = 0;
+    }
+    
+    // Calculate free blocks: allocated but not utilized
+    if (detailed.allocated_blocks > 0) {
+        detailed.free_blocks = detailed.allocated_blocks - detailed.utilized_blocks;
+    }
+
     // Set atomic allocations to sum of all process memory allocations from NVML
     // This represents the total memory allocated atomically by all processes
     detailed.atomic_allocations = total_atomic_allocations > 0 ? total_atomic_allocations : detailed.used;
 
-    // Default values (will be overridden by vLLM if available)
-    detailed.active_blocks = detailed.processes.size();
-    detailed.free_blocks = 0;
+    // Calculate fragmentation
     detailed.fragmentation_ratio = detailed.total > 0 ? 
         (1.0 - (double)detailed.free / detailed.total) : 0.0;
 
-    // Create thread info from processes (application-level, not GPU CUDA threads)
-    // NVML only provides process-level VRAM usage, not per-thread GPU metrics
-    for (size_t i = 0; i < detailed.processes.size(); ++i) {
-        ThreadInfo ti;
-        ti.thread_id = i;
-        ti.allocated_bytes = detailed.processes[i].used_bytes;
-        ti.state = "active";
-        detailed.threads.push_back(ti);
-    }
-    
-    // Parse vLLM metrics to populate blocks and update counts
-    // This will use Nsight Compute data if available for more accurate block utilization
-    if (!vllm_metrics.empty()) {
-        parseVLLMMetrics(vllm_metrics, detailed);
-    }
+    // Threads array removed - it was just a 1:1 mapping of processes with no useful information
+    // NVML doesn't provide per-thread GPU metrics, only process-level
+    // For actual GPU thread/block metrics, see nsight_metrics
 #endif
     return detailed;
-}
-
-std::string fetchVLLMEndpoint(const std::string& host, const std::string& port, const std::string& path) {
-    try {
-        net::io_context ioc;
-        tcp::resolver resolver(ioc);
-        auto const results = resolver.resolve(host, port);
-        tcp::socket socket(ioc);
-        net::connect(socket, results);
-        
-        http::request<http::string_body> req{http::verb::get, path, 11};
-        req.set(http::field::host, host);
-        req.set(http::field::user_agent, "blackbox-server");
-        
-        http::write(socket, req);
-        
-        beast::flat_buffer buffer;
-        http::response<http::string_body> res;
-        http::read(socket, buffer, res);
-        
-        beast::error_code ec;
-        socket.shutdown(tcp::socket::shutdown_both, ec);
-        
-        if (res.result() == http::status::ok) {
-            return res.body();
-        }
-    } catch (...) {
-    }
-    return "";
-}
-
-std::string fetchVLLMMetrics(const std::string& vllm_url = "http://localhost:8000") {
-    return fetchVLLMEndpoint("localhost", "8000", "/metrics");
-}
-
-void parseVLLMMetrics(const std::string& metrics, DetailedVRAMInfo& info) {
-    std::cout << "[DEBUG] parseVLLMMetrics called, metrics length=" << metrics.length() << std::endl;
-    
-    if (metrics.empty()) {
-        std::cout << "[DEBUG] metrics is empty, returning" << std::endl;
-        return;
-    }
-    
-    // Handle JSON-escaped newlines
-    std::string unescaped_metrics = metrics;
-    size_t pos = 0;
-    while ((pos = unescaped_metrics.find("\\n", pos)) != std::string::npos) {
-        unescaped_metrics.replace(pos, 2, "\n");
-        pos += 1;
-    }
-    
-    std::istringstream iss(unescaped_metrics);
-    std::string line;
-    int num_gpu_blocks = 0;
-    int block_size = 16;
-    double kv_cache_usage = 0.0;
-    int num_requests_running = 0;
-    int num_requests_waiting = 0;
-    
-    while (std::getline(iss, line)) {
-        if (line.find("cache_config_info") != std::string::npos) {
-            std::cout << "[DEBUG] Found cache_config_info line (full line): " << line << std::endl;
-            
-            // Find num_gpu_blocks="14401" - search for the pattern more carefully
-            std::string num_pattern = "num_gpu_blocks=\"";
-            size_t num_start = line.find(num_pattern);
-            if (num_start != std::string::npos) {
-                num_start += num_pattern.length(); // Skip past "num_gpu_blocks=\""
-                size_t num_end = line.find("\"", num_start);
-                if (num_end != std::string::npos) {
-                    std::string num_str = line.substr(num_start, num_end - num_start);
-                    std::cout << "[DEBUG] Extracted num_gpu_blocks string: '" << num_str << "'" << std::endl;
-                    try {
-                        num_gpu_blocks = std::stoi(num_str);
-                        std::cout << "[DEBUG] Successfully parsed num_gpu_blocks=" << num_gpu_blocks << std::endl;
-                    } catch (const std::exception& e) {
-                        std::cout << "[DEBUG] Failed to parse num_gpu_blocks from '" << num_str 
-                                  << "': " << e.what() << std::endl;
-                        // Try to find any number in the string
-                        size_t first_digit = num_str.find_first_of("0123456789");
-                        if (first_digit != std::string::npos) {
-                            size_t last_digit = num_str.find_last_of("0123456789");
-                            if (last_digit != std::string::npos) {
-                                try {
-                                    std::string cleaned = num_str.substr(first_digit, last_digit - first_digit + 1);
-                                    num_gpu_blocks = std::stoi(cleaned);
-                                    std::cout << "[DEBUG] Retry parsed num_gpu_blocks=" << num_gpu_blocks 
-                                              << " from cleaned string: '" << cleaned << "'" << std::endl;
-                                } catch (...) {}
-                            }
-                        }
-                    }
-                } else {
-                    std::cout << "[DEBUG] Could not find closing quote for num_gpu_blocks" << std::endl;
-                }
-            } else {
-                std::cout << "[DEBUG] Could not find num_gpu_blocks=\" pattern in line" << std::endl;
-            }
-            
-            // Find block_size="16"
-            std::string size_pattern = "block_size=\"";
-            size_t size_start = line.find(size_pattern);
-            if (size_start != std::string::npos) {
-                size_start += size_pattern.length(); // Skip past "block_size=\""
-                size_t size_end = line.find("\"", size_start);
-                if (size_end != std::string::npos) {
-                    std::string size_str = line.substr(size_start, size_end - size_start);
-                    std::cout << "[DEBUG] Extracted block_size string: '" << size_str << "'" << std::endl;
-                    try {
-                        block_size = std::stoi(size_str);
-                        std::cout << "[DEBUG] Successfully parsed block_size=" << block_size << std::endl;
-                    } catch (const std::exception& e) {
-                        std::cout << "[DEBUG] Failed to parse block_size from '" << size_str 
-                                  << "': " << e.what() << std::endl;
-                    }
-                } else {
-                    std::cout << "[DEBUG] Could not find closing quote for block_size" << std::endl;
-                }
-            } else {
-                std::cout << "[DEBUG] Could not find block_size=\" pattern in line" << std::endl;
-            }
-        }
-        
-        if (line.find("kv_cache_usage_perc{") != std::string::npos) {
-            size_t val_start = line.find_last_of(" ");
-            if (val_start != std::string::npos) {
-                try {
-                    std::string usage_str = line.substr(val_start + 1);
-                    kv_cache_usage = std::stod(usage_str);
-                    // vLLM returns kv_cache_usage_perc as 0-1 (not 0-100), convert to percentage
-                    if (kv_cache_usage > 0.0 && kv_cache_usage <= 1.0) {
-                        kv_cache_usage = kv_cache_usage * 100.0;
-                        std::cout << "[DEBUG] Parsed kv_cache_usage (converted from 0-1 to 0-100): " << kv_cache_usage << "%" << std::endl;
-                    } else {
-                        std::cout << "[DEBUG] Parsed kv_cache_usage=" << kv_cache_usage << " from string: " << usage_str << std::endl;
-                    }
-                } catch (const std::exception& e) {
-                    std::cout << "[DEBUG] Failed to parse kv_cache_usage: " << e.what() << std::endl;
-                }
-            }
-        }
-        
-        if (line.find("num_requests_running{") != std::string::npos) {
-            size_t val_start = line.find_last_of(" ");
-            if (val_start != std::string::npos) {
-                try {
-                    num_requests_running = (int)std::stod(line.substr(val_start + 1));
-                } catch (...) {}
-            }
-        }
-        
-        if (line.find("num_requests_waiting{") != std::string::npos) {
-            size_t val_start = line.find_last_of(" ");
-            if (val_start != std::string::npos) {
-                try {
-                    num_requests_waiting = (int)std::stod(line.substr(val_start + 1));
-                } catch (...) {}
-            }
-        }
-    }
-    
-    std::cout << "[DEBUG] parseVLLMMetrics: num_gpu_blocks=" << num_gpu_blocks 
-              << ", block_size=" << block_size 
-              << ", kv_cache_usage=" << kv_cache_usage 
-              << ", info.used=" << info.used 
-              << ", info.total=" << info.total << std::endl;
-    
-    if (num_gpu_blocks > 0) {
-        unsigned long long block_bytes = (unsigned long long)block_size * 1024;
-        
-        // num_gpu_blocks = total allocated blocks (reserved for KV cache)
-        int allocated_blocks = num_gpu_blocks;
-        
-        // Calculate utilized blocks (blocks actually being used)
-        // kv_cache_usage_perc is percentage of allocated blocks that are utilized
-        int utilized_blocks = 0;
-        if (kv_cache_usage > 0.0) {
-            // kv_cache_usage is now in 0-100 percentage range
-            double utilization_ratio = kv_cache_usage / 100.0;
-            utilized_blocks = (int)(num_gpu_blocks * utilization_ratio);
-            // Ensure at least 1 block if there's any usage (avoid rounding to 0)
-            if (utilized_blocks == 0 && kv_cache_usage > 0.0 && num_gpu_blocks > 0) {
-                utilized_blocks = 1;  // At least 1 block is utilized if usage > 0
-            }
-            std::cout << "[DEBUG] Using kv_cache_usage: " << kv_cache_usage 
-                      << "%, utilization_ratio=" << utilization_ratio
-                      << ", calculated utilized_blocks=" << utilized_blocks 
-                      << " out of allocated_blocks=" << allocated_blocks << std::endl;
-        } else {
-            // kv_cache_usage is 0 - this means no blocks are currently utilized
-            // Don't use memory fallback as it's inaccurate for KV cache
-            utilized_blocks = 0;
-            std::cout << "[DEBUG] kv_cache_usage is 0, setting utilized_blocks=0 (no KV cache in use)" << std::endl;
-            std::cout << "[DEBUG] NOTE: Not using memory fallback as it's inaccurate for KV cache utilization" << std::endl;
-        }
-        
-        // Free blocks = allocated but not utilized
-        int free_blocks = allocated_blocks - utilized_blocks;
-        
-        std::cout << "[DEBUG] Final block counts: allocated_blocks=" << allocated_blocks 
-                  << ", utilized_blocks=" << utilized_blocks
-                  << ", free_blocks=" << free_blocks << std::endl;
-        
-        // Try to use Nsight Compute metrics for actual block activity if available
-        unsigned long long nsight_active_blocks = 0;
-        for (const auto& [pid, nsight] : info.nsight_metrics) {
-            if (nsight.available && nsight.active_blocks > 0) {
-                nsight_active_blocks = nsight.active_blocks;
-                std::cout << "[DEBUG] Found Nsight Compute active_blocks=" << nsight_active_blocks 
-                          << " for PID " << pid << std::endl;
-                break;  // Use first available
-            }
-        }
-        
-        // Use Nsight Compute active blocks if available, otherwise fall back to kv_cache_usage
-        // Note: Nsight Compute gives GPU CUDA blocks, but we can use it as a proxy for KV cache activity
-        int actual_utilized_blocks = utilized_blocks;
-        if (nsight_active_blocks > 0) {
-            // Scale Nsight Compute blocks to KV cache blocks if needed
-            // For now, use it directly as an indicator of actual GPU activity
-            if (nsight_active_blocks < (unsigned long long)num_gpu_blocks) {
-                actual_utilized_blocks = (int)nsight_active_blocks;
-                std::cout << "[DEBUG] Using Nsight Compute active_blocks=" << nsight_active_blocks 
-                          << " instead of calculated utilized_blocks=" << utilized_blocks << std::endl;
-            } else {
-                // If Nsight shows more blocks than allocated, cap at allocated
-                actual_utilized_blocks = num_gpu_blocks;
-                std::cout << "[DEBUG] Nsight active_blocks (" << nsight_active_blocks 
-                          << ") exceeds num_gpu_blocks, capping at " << num_gpu_blocks << std::endl;
-            }
-        }
-        
-        // active_blocks = utilized blocks (actually being used)
-        info.active_blocks = actual_utilized_blocks;
-        info.free_blocks = num_gpu_blocks - actual_utilized_blocks;
-        
-        // Clear existing blocks and populate with vLLM block data
-        // Use Nsight Compute data when available for more accurate utilization
-        info.blocks.clear();
-        for (int i = 0; i < num_gpu_blocks; ++i) {
-            MemoryBlock block;
-            block.block_id = i;
-            block.size = block_bytes;
-            block.address = 0;
-            block.allocated = true;  // All blocks in num_gpu_blocks are allocated/reserved
-            // Use actual_utilized_blocks which may be from Nsight Compute
-            block.utilized = (i < actual_utilized_blocks);
-            block.type = "kv_cache";
-            info.blocks.push_back(block);
-        }
-        
-        std::cout << "[DEBUG] Populated " << num_gpu_blocks << " blocks: " 
-                  << actual_utilized_blocks << " marked as utilized (from "
-                  << (nsight_active_blocks > 0 ? "Nsight Compute" : "kv_cache_usage") << "), " 
-                  << (num_gpu_blocks - actual_utilized_blocks) << " marked as allocated but not utilized" << std::endl;
-    }
-    
-    for (int i = 0; i < num_requests_running; ++i) {
-        ThreadInfo ti;
-        ti.thread_id = info.threads.size();
-        ti.allocated_bytes = 0;
-        ti.state = "running";
-        info.threads.push_back(ti);
-    }
-    
-    for (int i = 0; i < num_requests_waiting; ++i) {
-        ThreadInfo ti;
-        ti.thread_id = info.threads.size();
-        ti.allocated_bytes = 0;
-        ti.state = "waiting";
-        info.threads.push_back(ti);
-    }
 }
 
 // Get Nsight Compute metrics for a specific PID using ncu CLI
@@ -513,8 +469,8 @@ NsightMetrics getNsightMetrics(unsigned int pid) {
     // We'll use a lightweight query approach
     std::string cmd = absl::StrCat(
         "timeout 2 ncu --target-processes ", pid,
-        " --metrics sm__sass_thread_inst_executed_op_atom_pred_on.sum,sm__thread_inst_executed.sum,sm__warps_active.avg.pct_of_peak_sustained_active",
-        " --print-gpu-trace --csv 2>/dev/null | tail -20"
+        " --metrics sm__sass_thread_inst_executed_op_atom_pred_on.sum,sm__thread_inst_executed.sum,sm__warps_active.avg.pct_of_peak_sustained_active,dram__bytes_read.sum,dram__bytes_write.sum",
+        " --print-gpu-trace --csv 2>/dev/null | tail -30"
     );
     
     FILE* ncu_output = popen(cmd.c_str(), "r");
@@ -553,6 +509,24 @@ NsightMetrics getNsightMetrics(unsigned int pid) {
                 } catch (...) {}
             }
         }
+        // Parse DRAM read bytes
+        if (line_str.find("dram__bytes_read") != std::string::npos) {
+            size_t last_space = line_str.find_last_of(" \t,");
+            if (last_space != std::string::npos) {
+                try {
+                    metrics.dram_read_bytes = std::stoull(line_str.substr(last_space + 1));
+                } catch (...) {}
+            }
+        }
+        // Parse DRAM write bytes
+        if (line_str.find("dram__bytes_write") != std::string::npos) {
+            size_t last_space = line_str.find_last_of(" \t,");
+            if (last_space != std::string::npos) {
+                try {
+                    metrics.dram_write_bytes = std::stoull(line_str.substr(last_space + 1));
+                } catch (...) {}
+            }
+        }
     }
     pclose(ncu_output);
     
@@ -564,7 +538,7 @@ NsightMetrics getNsightMetrics(unsigned int pid) {
     return metrics;
 }
 
-std::string createDetailedResponse(const DetailedVRAMInfo& info, const std::string& vllm_metrics = "") {
+std::string createDetailedResponse(const DetailedVRAMInfo& info) {
     std::ostringstream oss;
     double usedPercent = info.total > 0 ? (100.0 * info.used / info.total) : 0.0;
     oss << R"({"total_bytes":)" << info.total
@@ -572,7 +546,8 @@ std::string createDetailedResponse(const DetailedVRAMInfo& info, const std::stri
         << R"(,"free_bytes":)" << info.free
         << R"(,"reserved_bytes":)" << info.reserved
         << R"(,"used_percent":)" << std::fixed << std::setprecision(2) << usedPercent
-        << R"(,"active_blocks":)" << info.active_blocks
+        << R"(,"allocated_blocks":)" << info.allocated_blocks
+        << R"(,"utilized_blocks":)" << info.utilized_blocks
         << R"(,"free_blocks":)" << info.free_blocks
         << R"(,"atomic_allocations_bytes":)" << info.atomic_allocations
         << R"(,"fragmentation_ratio":)" << std::fixed << std::setprecision(4) << info.fragmentation_ratio
@@ -621,55 +596,67 @@ std::string createDetailedResponse(const DetailedVRAMInfo& info, const std::stri
             << "}";
     }
     oss << "}";
-    
-    if (!vllm_metrics.empty()) {
-        oss << R"(,"vllm_metrics":")";
-        for (char c : vllm_metrics) {
-            if (c == '"' || c == '\\' || c == '\n') {
-                oss << '\\';
-                if (c == '\n') oss << 'n';
-                else oss << c;
-            } else {
-                oss << c;
-            }
-        }
-        oss << R"(")";
-    }
     oss << "}";
     return oss.str();
 }
 
 void handleStreamingRequest(tcp::socket& socket) {
-    http::response<http::string_body> res;
-    res.result(http::status::ok);
-    res.set(http::field::content_type, "text/event-stream");
-    res.set(http::field::cache_control, "no-cache");
-    res.set(http::field::connection, "keep-alive");
-    res.body() = "";
-    res.prepare_payload();
-    http::write(socket, res);
-    
-    while (true) {
-        try {
-            std::string vllm_metrics = fetchVLLMMetrics();
-            DetailedVRAMInfo info = getDetailedVRAMUsage(vllm_metrics);
-            std::string json = createDetailedResponse(info, vllm_metrics);
-            
-            std::ostringstream event;
-            event << "data: " << json << "\n\n";
-            
-            http::response<http::string_body> chunk;
-            chunk.result(http::status::ok);
-            chunk.set(http::field::content_type, "text/event-stream");
-            chunk.body() = event.str();
-            chunk.prepare_payload();
-            
-            http::write(socket, chunk);
-            
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
-        } catch (...) {
-            break;
+    try {
+        http::response<http::string_body> res;
+        res.result(http::status::ok);
+        res.set(http::field::content_type, "text/event-stream");
+        res.set(http::field::cache_control, "no-cache");
+        res.set(http::field::connection, "keep-alive");
+        res.body() = "";
+        res.prepare_payload();
+        http::write(socket, res);
+        
+        while (true) {
+            try {
+                DetailedVRAMInfo info = getDetailedVRAMUsage();
+                std::string json = createDetailedResponse(info);
+                
+                std::ostringstream event;
+                event << "data: " << json << "\n\n";
+                
+                http::response<http::string_body> chunk;
+                chunk.result(http::status::ok);
+                chunk.set(http::field::content_type, "text/event-stream");
+                chunk.body() = event.str();
+                chunk.prepare_payload();
+                
+                http::write(socket, chunk);
+                
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            } catch (const boost::system::system_error& e) {
+                // Client disconnected during streaming - check all possible disconnect error codes
+                auto ec = e.code();
+                if (ec == boost::asio::error::broken_pipe || 
+                    ec == boost::asio::error::connection_reset ||
+                    ec == boost::asio::error::eof ||
+                    ec == boost::beast::http::error::end_of_stream ||
+                    ec == boost::asio::error::operation_aborted ||
+                    ec.category() == boost::asio::error::get_system_category()) {
+                    break; // Client disconnected, exit silently
+                }
+                // Only log unexpected errors
+                std::cerr << "Unexpected error in stream: " << e.what() << std::endl;
+                break;
+            } catch (const std::exception& e) {
+                // Check if it's a disconnect-related error
+                std::string err_msg = e.what();
+                if (err_msg.find("end of stream") != std::string::npos ||
+                    err_msg.find("end_of_stream") != std::string::npos ||
+                    err_msg.find("Broken pipe") != std::string::npos ||
+                    err_msg.find("Connection reset") != std::string::npos) {
+                    break; // Client disconnected, exit silently
+                }
+                std::cerr << "Error in stream: " << e.what() << std::endl;
+                break;
+            }
         }
+    } catch (...) {
+        // Client disconnected, exit silently (catch-all for any remaining exceptions)
     }
 }
 
@@ -683,9 +670,8 @@ void handleRequest(http::request<http::string_body>& req, tcp::socket& socket) {
                 return;
             }
             
-            std::string vllm_metrics = fetchVLLMMetrics();
-            DetailedVRAMInfo info = getDetailedVRAMUsage(vllm_metrics);
-            std::string json = createDetailedResponse(info, vllm_metrics);
+            DetailedVRAMInfo info = getDetailedVRAMUsage();
+            std::string json = createDetailedResponse(info);
             
             http::response<http::string_body> res;
             res.version(req.version());
@@ -694,7 +680,19 @@ void handleRequest(http::request<http::string_body>& req, tcp::socket& socket) {
             res.set(http::field::content_type, "application/json");
             res.body() = json;
             res.prepare_payload();
-            http::write(socket, res);
+            
+            try {
+                http::write(socket, res);
+            } catch (const boost::system::system_error& e) {
+                // Client disconnected before response sent - ignore silently
+                auto ec = e.code();
+                if (ec == boost::asio::error::broken_pipe || 
+                    ec == boost::asio::error::connection_reset ||
+                    ec == boost::asio::error::eof) {
+                    return; // Client disconnected, exit silently
+                }
+                throw; // Re-throw unexpected errors
+            }
             return;
         }
     }
@@ -706,7 +704,19 @@ void handleRequest(http::request<http::string_body>& req, tcp::socket& socket) {
     res.set(http::field::content_type, "text/plain");
     res.body() = "Not Found";
     res.prepare_payload();
-    http::write(socket, res);
+    
+    try {
+        http::write(socket, res);
+    } catch (const boost::system::system_error& e) {
+        // Client disconnected - ignore silently
+        auto ec = e.code();
+        if (ec == boost::asio::error::broken_pipe || 
+            ec == boost::asio::error::connection_reset ||
+            ec == boost::asio::error::eof) {
+            return; // Client disconnected, exit silently
+        }
+        throw; // Re-throw unexpected errors
+    }
 }
 
 void acceptConnections(tcp::acceptor& acceptor) {
@@ -720,22 +730,41 @@ void acceptConnections(tcp::acceptor& acceptor) {
             http::read(socket, buffer, req);
             handleRequest(req, socket);
         } catch (const boost::system::system_error& e) {
-            // Handle broken pipe and other connection errors gracefully
-            if (e.code() == boost::asio::error::broken_pipe || 
-                e.code() == boost::asio::error::connection_reset) {
-                // Client disconnected, continue to next connection
+            // Handle connection errors gracefully - client disconnected
+            // (boost::beast::system_error is a typedef of boost::system::system_error)
+            auto ec = e.code();
+            if (ec == boost::asio::error::broken_pipe || 
+                ec == boost::asio::error::connection_reset ||
+                ec == boost::asio::error::eof ||
+                ec == boost::beast::http::error::end_of_stream ||
+                ec == boost::asio::error::operation_aborted ||
+                ec.category() == boost::asio::error::get_system_category()) {
+                // Client disconnected, continue to next connection (silent - no logging)
                 continue;
             }
-            std::cerr << "Connection error: " << e.what() << std::endl;
+            // Only log unexpected errors
+            std::cerr << "Unexpected connection error: " << e.what() << std::endl;
         } catch (const std::exception& e) {
+            // Check if it's a disconnect-related error
+            std::string err_msg = e.what();
+            if (err_msg.find("end of stream") != std::string::npos ||
+                err_msg.find("end_of_stream") != std::string::npos ||
+                err_msg.find("Broken pipe") != std::string::npos ||
+                err_msg.find("Connection reset") != std::string::npos ||
+                err_msg.find("Connection refused") != std::string::npos) {
+                continue; // Client disconnected, continue silently
+            }
             std::cerr << "Error handling request: " << e.what() << std::endl;
+        } catch (...) {
+            // Catch-all for any other exceptions (likely disconnections)
+            continue;
         }
     }
 }
 
 int main(int argc, char* argv[]) {
     try {
-        int port = 8080;
+        int port = 6767;
         if (argc > 1) port = std::stoi(argv[1]);
 
         net::io_context ioc;

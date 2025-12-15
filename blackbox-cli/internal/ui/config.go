@@ -19,9 +19,10 @@ type containerConfig struct {
 }
 
 type containerSizes struct {
-	Endpoints containerSize
-	Data      containerSize
-	StatusBar containerSize
+	MetricsGrid containerSize
+	Endpoints   containerSize
+	Data        containerSize
+	StatusBar   containerSize
 }
 
 type containerSize struct {
@@ -35,7 +36,7 @@ var defaultContainerConfig = containerConfig{
 		HeightRatio float64
 		Margin      int
 	}{
-		WidthRatio:  0.3,
+		WidthRatio:  0.35,
 		HeightRatio: 1.0,
 		Margin:      2,
 	},
@@ -44,7 +45,7 @@ var defaultContainerConfig = containerConfig{
 		Height     int
 		Margin     int
 	}{
-		WidthRatio: 0.7,
+		WidthRatio: 0.65,
 		Height:     0,
 		Margin:     2,
 	},
@@ -70,26 +71,34 @@ func calculateContainerSizes(windowWidth, windowHeight int) containerSizes {
 		windowHeight = 10
 	}
 
-	topBarHeight := 1
-	if windowHeight > topBarHeight {
-		windowHeight -= topBarHeight
-	}
+	availableHeight := windowHeight - config.StatusBar.Height - config.StatusBar.Margin - 4
 
 	endpointsWidth := int(float64(windowWidth)*config.Endpoints.WidthRatio) - config.Endpoints.Margin
-	endpointsHeight := windowHeight - config.StatusBar.Height - config.StatusBar.Margin - config.Endpoints.Margin - 2
+	endpointsHeight := availableHeight / 5
+	metricsHeight := availableHeight - endpointsHeight
+
 	if endpointsWidth < 10 {
 		endpointsWidth = 10
 	}
 	if endpointsHeight < 3 {
 		endpointsHeight = 3
 	}
+	if metricsHeight < 5 {
+		metricsHeight = 5
+	}
+
 	sizes.Endpoints = containerSize{
 		Width:  endpointsWidth,
 		Height: endpointsHeight,
 	}
 
+	sizes.MetricsGrid = containerSize{
+		Width:  endpointsWidth,
+		Height: metricsHeight,
+	}
+
 	dataWidth := int(float64(windowWidth)*config.Data.WidthRatio) - config.Data.Margin
-	dataHeight := windowHeight - config.StatusBar.Height - config.StatusBar.Margin - config.Data.Margin - 2
+	dataHeight := windowHeight - config.StatusBar.Height - config.StatusBar.Margin - 2
 	if dataWidth < 10 {
 		dataWidth = 10
 	}

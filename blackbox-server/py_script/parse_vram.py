@@ -43,19 +43,15 @@ def parse_vram(data: Dict[str, Any], clear_screen: bool = False):
     print(f"  Reserved:  {format_bytes(reserved)}")
     
     # Blocks
-    active = data.get('active_blocks', 0)  # Utilized blocks
-    free_blocks = data.get('free_blocks', 0)
+    allocated_blocks = data.get('allocated_blocks', 0)  # Total allocated blocks
+    utilized_blocks = data.get('utilized_blocks', 0)  # Blocks actively storing data
+    free_blocks = data.get('free_blocks', 0)  # Allocated but unused blocks
     frag = data.get('fragmentation_ratio', 0)
     atomic = data.get('atomic_allocations_bytes', 0)
     
-    # Calculate allocated blocks from block list
-    blocks = data.get('blocks', [])
-    allocated_count = sum(1 for b in blocks if b.get('allocated', False))
-    utilized_count = sum(1 for b in blocks if b.get('utilized', False))
-    
     print(f"\nBlocks:")
-    print(f"  Allocated: {allocated_count} (reserved for KV cache)")
-    print(f"  Utilized:  {utilized_count} (actively storing data)")
+    print(f"  Allocated: {allocated_blocks} (reserved for KV cache)")
+    print(f"  Utilized:  {utilized_blocks} (actively storing data)")
     print(f"  Free:      {free_blocks} (allocated but not used)")
     print(f"  Fragmentation: {frag:.4f}")
     print(f"  Atomic Allocations: {format_bytes(atomic)}")
@@ -71,16 +67,7 @@ def parse_vram(data: Dict[str, Any], clear_screen: bool = False):
                   f"{format_bytes(p.get('used_bytes', 0)):<15} "
                   f"{format_bytes(p.get('reserved_bytes', 0)):<15}")
     
-    # Threads
-    threads = data.get('threads', [])
-    if threads:
-        print(f"\nThreads ({len(threads)}):")
-        print(f"  {'ID':<10} {'Allocated':<15} {'State':<10}")
-        print("  " + "-" * 35)
-        for t in threads:
-            print(f"  {t.get('thread_id', 0):<10} "
-                  f"{format_bytes(t.get('allocated_bytes', 0)):<15} "
-                  f"{t.get('state', 'unknown'):<10}")
+    # Threads section removed - threads array is now empty (was redundant 1:1 mapping of processes)
     
     # Blocks detail
     blocks = data.get('blocks', [])
@@ -122,24 +109,17 @@ def parse_vram(data: Dict[str, Any], clear_screen: bool = False):
                 print(f"\n  PID {pid}:")
                 print(f"    Atomic Operations: {metrics.get('atomic_operations', 0):,}")
                 print(f"    Threads per Block: {metrics.get('threads_per_block', 0)}")
-                print(f"    Blocks per SM: {metrics.get('blocks_per_sm', 0)}")
-                print(f"    Shared Memory Usage: {format_bytes(metrics.get('shared_memory_usage', 0))}")
+                print(f"    Active Blocks (GPU): {metrics.get('active_blocks', 0)}")
+                print(f"    DRAM Read Bytes: {format_bytes(metrics.get('dram_read_bytes', 0))}")
+                print(f"    DRAM Write Bytes: {format_bytes(metrics.get('dram_write_bytes', 0))}")
+                print(f"    Memory Throughput: {metrics.get('memory_throughput', 0) / (1024**3):.2f} GB/s")
                 print(f"    Occupancy: {metrics.get('occupancy', 0.0):.2f}%")
             elif isinstance(metrics, dict):
                 print(f"\n  PID {pid}: (No metrics available - process may not be running CUDA kernels)")
     
-    # vLLM Metrics
-    vllm_metrics = data.get('vllm_metrics', '')
-    if vllm_metrics:
-        print(f"\nvLLM Metrics:")
-        print("  " + "-" * 58)
-        for line in vllm_metrics.split('\n'):
-            if line.strip() and not line.strip().startswith('#'):
-                print(f"  {line}")
-    
     print("\n" + "=" * 60)
 
-def fetch_vram_stream(url: str = "http://localhost:8080/vram"):
+def fetch_vram_stream(url: str = "http://localhost:6767/vram"):
     import time
     try:
         base_url = url.rstrip('/').replace('/stream', '')
@@ -158,7 +138,7 @@ def fetch_vram_stream(url: str = "http://localhost:8080/vram"):
     except KeyboardInterrupt:
         pass
 
-def fetch_vram(url: str = "http://localhost:8080/vram") -> Optional[Dict[str, Any]]:
+def fetch_vram(url: str = "http://localhost:6767/vram") -> Optional[Dict[str, Any]]:
     try:
         response = requests.get(url, timeout=60)
         response.raise_for_status()
@@ -171,8 +151,8 @@ def main():
     parser = argparse.ArgumentParser(description='Parse VRAM monitor JSON output')
     parser.add_argument('input', nargs='?', type=str, default=None,
                        help='JSON input file (default: fetch from server)')
-    parser.add_argument('--url', default='http://localhost:8080/vram',
-                       help='Server URL (default: http://localhost:8080/vram)')
+    parser.add_argument('--url', default='http://localhost:6767/vram',
+                       help='Server URL (default: http://localhost:6767/vram)')
     parser.add_argument('--stream', action='store_true',
                        help='Stream updates continuously')
     

@@ -1,29 +1,42 @@
 package model
 
-// temp snapshot
+// VRAM snapshot from blackbox-server /vram endpoint
 type Snapshot struct {
-	Version string `json:"version,omitempty"`
-	TS      int64  `json:"ts"`
-
-	Requests Requests `json:"requests"`
-	Tokens   Tokens   `json:"tokens"`
-	KV       KV       `json:"kv"`
+	TotalBytes             int64     `json:"total_bytes"`
+	UsedBytes              int64     `json:"used_bytes"`
+	FreeBytes              int64     `json:"free_bytes"`
+	ReservedBytes          int64     `json:"reserved_bytes"`
+	UsedPercent            float64   `json:"used_percent"`
+	TotalBlocks            int       `json:"total_blocks"`
+	AllocatedBlocks        int       `json:"allocated_blocks"`
+	ActiveBlocks           int       `json:"utilized_blocks"`
+	FreeBlocks             int       `json:"free_blocks"`
+	AtomicAllocationsBytes int64     `json:"atomic_allocations_bytes"`
+	FragmentationRatio     float64   `json:"fragmentation_ratio"`
+	Processes              []Process `json:"processes"`
+	Threads                []Thread  `json:"threads"`
+	Blocks                 []Block   `json:"blocks"`
+	VLLMMetrics            string    `json:"vllm_metrics,omitempty"`
 }
 
-type Requests struct {
-	QueueLen int `json:"queue_len"`
-	P50ms    int `json:"p50_ms"`
-	P95ms    int `json:"p95_ms"`
+type Process struct {
+	PID           int    `json:"pid"`
+	Name          string `json:"name"`
+	UsedBytes     int64  `json:"used_bytes"`
+	ReservedBytes int64  `json:"reserved_bytes"`
 }
 
-type Tokens struct {
-	TPS      float64          `json:"tps"`
-	Total    int64            `json:"total"`
-	ByIntent map[string]int64 `json:"by_intent,omitempty"`
+type Thread struct {
+	ThreadID       int    `json:"thread_id"`
+	AllocatedBytes int64  `json:"allocated_bytes"`
+	State          string `json:"state"`
 }
 
-type KV struct {
-	UsedMB       int `json:"used_mb"`
-	CapacityMB   int `json:"capacity_mb"`
-	CompressedMB int `json:"compressed_mb,omitempty"`
+type Block struct {
+	BlockID   int    `json:"block_id"`
+	Address   int64  `json:"address"`
+	Size      int64  `json:"size"`
+	Type      string `json:"type"`
+	Allocated bool   `json:"allocated"`
+	Utilized  bool   `json:"utilized"`
 }

@@ -8,3 +8,4 @@ build/
 connect.sh
 hf_token
 **/run_qwen.sh
+**/__pycache__/

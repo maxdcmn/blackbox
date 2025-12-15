@@ -57,13 +57,35 @@ else
     fi
     
     # Install NVIDIA drivers (latest stable)
-    $SUDO apt install -y nvidia-driver-535 nvidia-utils-535 || \
-    $SUDO apt install -y nvidia-driver-525 nvidia-utils-525 || \
-    $SUDO apt install -y nvidia-driver-470 nvidia-utils-470
+    # For Ubuntu 22.04, prefer 535 or 525
+    if $SUDO apt install -y nvidia-driver-535 nvidia-utils-535 2>/dev/null; then
+        echo "✓ Installed nvidia-driver-535 and nvidia-utils-535"
+    elif $SUDO apt install -y nvidia-driver-525 nvidia-utils-525 2>/dev/null; then
+        echo "✓ Installed nvidia-driver-525 and nvidia-utils-525"
+    elif $SUDO apt install -y nvidia-driver-470 nvidia-utils-470 2>/dev/null; then
+        echo "✓ Installed nvidia-driver-470 and nvidia-utils-470"
+    else
+        echo "⚠ Could not install drivers automatically"
+        echo "Try: sudo ubuntu-drivers autoinstall"
+    fi
     
-    echo "⚠ Drivers installed. REBOOT REQUIRED before continuing!"
+    echo ""
+    echo "⚠⚠⚠ REBOOT REQUIRED ⚠⚠⚠"
+    echo "After reboot, drivers and NVML library versions will match"
     echo "Run: sudo reboot"
     exit 0
+fi
+
+# Check for driver/library version mismatch
+echo "Checking for driver/library version mismatch..."
+if nvidia-smi &>/dev/null; then
+    DRIVER_VERSION=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1)
+    echo "✓ Driver version: $DRIVER_VERSION"
+    echo "✓ nvidia-smi works - driver and library versions match"
+else
+    echo "⚠ nvidia-smi failed - possible driver/library mismatch"
+    echo "Try: sudo reboot"
+    echo "Or reinstall: sudo apt install --reinstall nvidia-utils-535"
 fi
 
 # 4. Install CUDA Toolkit (optional but recommended)
@@ -82,13 +104,27 @@ else
     }
 fi
 
-# 5. Install NVML development headers
+# 5. Install NVML (runtime library + development headers)
 echo ""
-echo "=== Step 5: Installing NVML development headers ==="
+echo "=== Step 5: Installing NVML (runtime + headers) ==="
+
+# Check for NVML runtime library
+if find /usr -name libnvidia-ml.so* 2>/dev/null | grep -q libnvidia-ml.so; then
+    echo "✓ NVML runtime library found"
+else
+    echo "Installing NVML runtime library..."
+    # NVML runtime comes with nvidia-utils, try to install if missing
+    $SUDO apt install -y nvidia-utils-535 2>/dev/null || \
+    $SUDO apt install -y nvidia-utils-525 2>/dev/null || \
+    $SUDO apt install -y nvidia-utils-520 2>/dev/null || \
+    echo "⚠ Could not install NVML runtime. Ensure NVIDIA drivers are installed."
+fi
+
+# Check for NVML development headers
 if find /usr -name nvml.h 2>/dev/null | grep -q nvml.h; then
     echo "✓ NVML headers already found"
 else
-    echo "Installing NVML headers..."
+    echo "Installing NVML development headers..."
     
     # Try different package names depending on what's available
     if $SUDO apt install -y libnvidia-ml-dev 2>/dev/null; then
@@ -115,6 +151,15 @@ else
 fi
 
 # Verify NVML installation
+echo ""
+echo "Verifying NVML installation..."
+if find /usr -name libnvidia-ml.so* 2>/dev/null | grep -q libnvidia-ml.so; then
+    NVML_LIB=$(find /usr -name libnvidia-ml.so* 2>/dev/null | head -1)
+    echo "✓ NVML runtime library found at: $NVML_LIB"
+else
+    echo "⚠ NVML runtime library not found. Server will run but NVML features will be disabled."
+fi
+
 if find /usr -name nvml.h 2>/dev/null | grep -q nvml.h; then
     NVML_PATH=$(find /usr -name nvml.h 2>/dev/null | head -1)
     echo "✓ NVML headers found at: $NVML_PATH"
@@ -172,6 +217,12 @@ if command -v nvcc &> /dev/null; then
     echo "✓ nvcc: $(nvcc --version | grep release | sed 's/.*release //' | sed 's/,.*//')"
 else
     echo "⚠ nvcc: NOT FOUND (optional)"
+fi
+
+if find /usr -name libnvidia-ml.so* 2>/dev/null | grep -q libnvidia-ml.so; then
+    echo "✓ NVML runtime library: FOUND"
+else
+    echo "✗ NVML runtime library: NOT FOUND"
 fi
 
 if find /usr -name nvml.h 2>/dev/null | grep -q nvml.h; then
