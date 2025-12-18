@@ -1,7 +1,0 @@
-README.md
-pyproject.toml
-blackbox_dashboard.egg-info/PKG-INFO
-blackbox_dashboard.egg-info/SOURCES.txt
-blackbox_dashboard.egg-info/dependency_links.txt
-blackbox_dashboard.egg-info/requires.txt
-blackbox_dashboard.egg-info/top_level.txt
