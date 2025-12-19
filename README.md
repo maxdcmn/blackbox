@@ -40,7 +40,7 @@ sudo mv blackbox /usr/local/bin/
 Copy the example environment file and configure:
 
 ```bash
-cp env.example .env
+cp .env.example .env
 # Edit .env with your values (HF_TOKEN, BLACKBOX_SERVER_URL, etc.)
 ```
 
@@ -244,7 +244,7 @@ blackbox/
 │   └── main.go               # Entry point
 │
 ├── Makefile                  # Build automation
-└── env.example               # Environment configuration template
+└── .env.example              # Environment configuration template
 ```
 
 ## Build System
