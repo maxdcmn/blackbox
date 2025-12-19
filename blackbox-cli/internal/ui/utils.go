@@ -145,4 +145,5 @@ var (
 	vramColor          = lipgloss.Color("28")
 	blocksColor        = lipgloss.Color("34")
 	fragmentationColor = lipgloss.Color("40")
+	prefixHitRateColor = lipgloss.Color("38")
 )

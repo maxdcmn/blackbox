@@ -209,6 +209,28 @@ func (m *DashboardModel) formatMetricValues(title string, val1, val2, val3 int) 
 			styleColor(colorItalic).Render(fmt.Sprintf("Total: %d", total)))
 	case "Fragmentation":
 		return styleColor(getPercentColor(float64(val1))).Render(fmt.Sprintf("%.2f%%", float64(val1)))
+	case "Allocated VRAM":
+		// Show allocated/total with percentage
+		// val1 = allocated MB, val2 = total MB
+		if val2 <= 0 {
+			// If total is not available, just show allocated
+			gb1 := float64(val1) / 1024.0
+			return styleColor(colorOrange).Render(fmt.Sprintf("%.2f GB", gb1))
+		}
+		percent := (float64(val1) / float64(val2)) * 100.0
+		gb1 := float64(val1) / 1024.0
+		gb2 := float64(val2) / 1024.0
+		return fmt.Sprintf("%s / %s %s",
+			styleColor(colorOrange).Render(fmt.Sprintf("%.2f", gb1)),
+			styleColor(colorItalic).Render(fmt.Sprintf("%.2f GB", gb2)),
+			styleColor(getPercentColor(percent)).Render(fmt.Sprintf("(%.1f%%)", percent)))
+	case "Used KV Cache":
+		// Show in GB, no percentage calculation needed
+		gb := float64(val1) / 1024.0
+		return styleColor(colorGreen).Render(fmt.Sprintf("%.2f GB", gb))
+	case "Prefix Cache Hit Rate":
+		// Show as percentage
+		return styleColor(getPercentColor(float64(val1))).Render(fmt.Sprintf("%.1f%%", float64(val1)))
 	default:
 		percent := 0.0
 		if val2 > 0 {

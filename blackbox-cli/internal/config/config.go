@@ -35,7 +35,7 @@ func Load() (*Config, error) {
 			Endpoints: []Endpoint{
 				{
 					Name:     "local",
-					BaseURL:  "http://127.0.0.1:8080",
+					BaseURL:  "http://127.0.0.1:6767",
 					Endpoint: "/vram",
 					Timeout:  "2s",
 				},
@@ -55,7 +55,7 @@ func Load() (*Config, error) {
 		cfg.Endpoints = []Endpoint{
 			{
 				Name:     "local",
-				BaseURL:  "http://127.0.0.1:8080",
+				BaseURL:  "http://127.0.0.1:6767",
 				Endpoint: "/vram",
 				Timeout:  "2s",
 			},

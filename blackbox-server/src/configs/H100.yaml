@@ -1,0 +1,3 @@
+dtype: "auto"
+gpu-memory-utilization: 0.95
+tensor-parallel-size: 1

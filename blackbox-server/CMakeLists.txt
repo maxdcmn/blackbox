@@ -98,27 +98,60 @@ find_path(NVML_INCLUDE_DIR nvml.h
     /usr/include
     /usr/local/include
     /opt/nvidia/include
+    /usr/include/nvidia
 )
 
-if(NVML_INCLUDE_DIR)
+# Try multiple library names
+find_library(NVML_LIB 
+    NAMES nvidia-ml libnvidia-ml.so.1 libnvidia-ml.so
+    PATHS
+    /usr/lib
+    /usr/lib64
+    /usr/lib/x86_64-linux-gnu
+    /usr/local/lib
+    /opt/nvidia/lib
+    /usr/lib/nvidia
+)
+
+# Only enable NVML if both headers and library are found
+if(NVML_INCLUDE_DIR AND NVML_LIB)
     message(STATUS "Found NVML: ${NVML_INCLUDE_DIR}")
+    message(STATUS "Found NVML library: ${NVML_LIB}")
     add_definitions(-DNVML_AVAILABLE)
     include_directories(${NVML_INCLUDE_DIR})
-    
-    find_library(NVML_LIB nvidia-ml
-        PATHS
-        /usr/lib
-        /usr/lib64
-        /usr/local/lib
-        /opt/nvidia/lib
-    )
-    
-    if(NVML_LIB)
-        message(STATUS "Found NVML library: ${NVML_LIB}")
+else()
+    if(NVML_INCLUDE_DIR)
+        message(WARNING "NVML headers found but library not found. NVML features will be disabled.")
     endif()
+    if(NVML_LIB)
+        message(WARNING "NVML library found but headers not found. NVML features will be disabled.")
+    endif()
+    unset(NVML_INCLUDE_DIR)
+    unset(NVML_LIB)
 endif()
 
-add_executable(blackbox-server src/main.cpp)
+add_executable(blackbox-server
+    src/infra/main.cpp
+    src/infra/http_server.cpp
+    src/services/nvml_utils.cpp
+    src/services/vllm_client.cpp
+    src/services/nsight_utils.cpp
+    src/services/hf_deploy.cpp
+    src/services/deploy_service.cpp
+    src/services/model_manager.cpp
+    src/services/spindown_service.cpp
+    src/services/vram_tracker.cpp
+    src/services/optimization_service.cpp
+    src/services/aggregation_service.cpp
+    src/utils/json_serializer.cpp
+    src/utils/json_parser.cpp
+    src/utils/env_utils.cpp
+    src/utils/logger.cpp
+)
+
+target_include_directories(blackbox-server PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
 
 if(Boost_FOUND AND Boost_SYSTEM_FOUND)
     # Use system Boost
@@ -147,8 +180,42 @@ target_link_libraries(blackbox-server
     absl::str_format_internal
 )
 
+# Add nlohmann/json (header-only library)
+if(NOT FetchContent_Declare)
+    include(FetchContent)
+endif()
+
+FetchContent_Declare(
+    json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG v3.11.3
+)
+FetchContent_MakeAvailable(json)
+
+# Add yaml-cpp
+find_package(yaml-cpp QUIET)
+if(yaml-cpp_FOUND)
+    message(STATUS "Using system yaml-cpp")
+else()
+    message(STATUS "System yaml-cpp not found, will download via FetchContent")
+    FetchContent_Declare(
+        yaml-cpp
+        GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
+        GIT_TAG 0.8.0
+    )
+    FetchContent_MakeAvailable(yaml-cpp)
+endif()
+
+target_link_libraries(blackbox-server
+    nlohmann_json::nlohmann_json
+    yaml-cpp
+)
+
 if(NVML_LIB)
+    message(STATUS "Linking NVML library: ${NVML_LIB}")
     target_link_libraries(blackbox-server ${NVML_LIB})
+else()
+    message(STATUS "NVML library not found - NVML features will be disabled at runtime")
 endif()
 
 # Installation

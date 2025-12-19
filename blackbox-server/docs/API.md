@@ -259,6 +259,307 @@ for line in response.iter_lines():
 
 ---
 
+### POST /deploy
+
+Deploys a HuggingFace model using vLLM Docker container.
+
+**Request:**
+```http
+POST /deploy HTTP/1.1
+Host: localhost:6767
+Content-Type: application/json
+
+{
+  "model_id": "Qwen/Qwen2.5-7B-Instruct",
+  "hf_token": "hf_xxxxxxxxxxxxx",
+  "port": 8000
+}
+```
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `model_id` | string | Yes | HuggingFace model identifier (e.g., "Qwen/Qwen2.5-7B-Instruct") |
+| `hf_token` | string | No* | HuggingFace API token (can be set in .env as HF_TOKEN) |
+| `port` | integer | No | Port to expose vLLM API (default: 8000) |
+
+*Required if not set in `.env` file
+
+**Response (Success):**
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "success": true,
+  "message": "Model deployed successfully. Container: abc123def456",
+  "container_id": "abc123def456",
+  "port": 8000
+}
+```
+
+**Response (Error - Limit Exceeded):**
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "success": false,
+  "message": "Cannot deploy: 3 models already deployed (max: 3)"
+}
+```
+
+**Response (Error - Missing Fields):**
+```http
+HTTP/1.1 400 Bad Request
+Content-Type: application/json
+
+{
+  "success": false,
+  "message": "model_id is required"
+}
+```
+
+```http
+HTTP/1.1 500 Internal Server Error
+Content-Type: application/json
+
+{
+  "success": false,
+  "message": "Failed to validate model. Check model_id and HF token."
+}
+```
+
+**Example:**
+```bash
+curl -X POST http://localhost:6767/deploy \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_id": "Qwen/Qwen2.5-7B-Instruct",
+    "hf_token": "hf_xxxxxxxxxxxxx",
+    "port": 8000
+  }'
+```
+
+**Behavior:**
+- Validates the model exists on HuggingFace Hub using the provided token
+- Stops and removes any existing container with the same name
+- Creates a Docker container using `vllm/vllm-openai:latest` image
+- Runs the container in detached mode with GPU support
+- Exposes the vLLM OpenAI-compatible API on the specified port
+- Returns container ID for management
+
+**Container Naming:**
+- Container name format: `vllm-{model_id}` (special characters replaced with hyphens)
+- Example: `Qwen/Qwen2.5-7B-Instruct` → `vllm-Qwen-Qwen2-5-7B-Instruct`
+
+**Requirements:**
+- Docker must be installed and running
+- NVIDIA Docker runtime must be configured (`--runtime nvidia`)
+- HuggingFace token must have access to the model (if model is private)
+- Port must be available (default: 8000)
+
+**Deployment Limits:**
+- Maximum concurrent models is controlled by `MAX_CONCURRENT_MODELS` in `.env` (default: 3)
+- Deployment will fail if limit is reached
+- Use `GET /models` to check current deployments
+- Use `POST /spindown` to remove models before deploying new ones
+
+**Notes:**
+- The deployment script is temporarily stored in `/tmp/deploy_*.sh`
+- Container runs with GPU access (`--gpus all`)
+- HuggingFace cache is mounted from `~/.cache/huggingface`
+- Container uses host IPC for better performance (`--ipc=host`)
+
+---
+
+### POST /spindown
+
+Stops and removes a deployed model container.
+
+**Request:**
+```http
+POST /spindown HTTP/1.1
+Host: localhost:6767
+Content-Type: application/json
+
+{
+  "model_id": "Qwen/Qwen2.5-7B-Instruct"
+}
+```
+
+Or by container ID/name:
+```json
+{
+  "container_id": "vllm-Qwen-Qwen2-5-7B-Instruct"
+}
+```
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `model_id` | string | Yes* | HuggingFace model identifier |
+| `container_id` | string | Yes* | Container name or ID (starts with "vllm-") |
+
+*Either `model_id` or `container_id` is required
+
+**Response (Success):**
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "success": true,
+  "message": "Model spindown successful",
+  "target": "Qwen/Qwen2.5-7B-Instruct"
+}
+```
+
+**Response (Error):**
+```http
+HTTP/1.1 500 Internal Server Error
+Content-Type: application/json
+
+{
+  "success": false,
+  "message": "Failed to spindown model: Qwen/Qwen2.5-7B-Instruct"
+}
+```
+
+**Example:**
+```bash
+curl -X POST http://localhost:6767/spindown \
+  -H "Content-Type: application/json" \
+  -d '{"model_id": "Qwen/Qwen2.5-7B-Instruct"}'
+```
+
+---
+
+### GET /models
+
+Lists all deployed models and their status.
+
+**Request:**
+```http
+GET /models HTTP/1.1
+Host: localhost:6767
+```
+
+**Response:**
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "total": 2,
+  "running": 1,
+  "max_allowed": 3,
+  "models": [
+    {
+      "model_id": "Qwen-Qwen2-5-7B-Instruct",
+      "container_id": "abc123def456",
+      "container_name": "vllm-Qwen-Qwen2-5-7B-Instruct",
+      "port": 8000,
+      "running": true
+    },
+    {
+      "model_id": "meta-llama-Llama-2-7b",
+      "container_id": "def456ghi789",
+      "container_name": "vllm-meta-llama-Llama-2-7b",
+      "port": 8001,
+      "running": false
+    }
+  ]
+}
+```
+
+**Response Fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `total` | integer | Total number of deployed models (running and stopped) |
+| `running` | integer | Number of currently running models |
+| `max_allowed` | integer | Maximum concurrent models allowed |
+| `models` | array | Array of deployed model objects |
+
+**Model Object:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `model_id` | string | Model identifier (from container name) |
+| `container_id` | string | Docker container ID |
+| `container_name` | string | Docker container name |
+| `port` | integer | Port exposed by the container |
+| `running` | boolean | Whether the container is currently running |
+| `configured_max_gpu_utilization` | float | Configured max GPU utilization (0.0-1.0) from config.yaml |
+| `avg_vram_usage_percent` | float | Average VRAM usage percentage (0-100) |
+| `peak_vram_usage_percent` | float | Peak VRAM usage percentage (0-100) |
+| `gpu_type` | string | GPU type (T4, A100, H100, L40) |
+| `pid` | integer | Process ID of the container |
+
+**Example:**
+```bash
+curl http://localhost:6767/models | jq
+```
+
+---
+
+### POST /optimize
+
+Optimizes model GPU utilization by restarting models that are overallocated (using less than 70% of configured max_gpu_utilization).
+
+**Request:**
+```http
+POST /optimize HTTP/1.1
+Host: localhost:6767
+```
+
+**Response (Models Optimized):**
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "success": true,
+  "optimized": true,
+  "message": "Optimized 2 model(s)",
+  "restarted_models": [
+    "vllm-Qwen-Qwen2-5-7B-Instruct",
+    "vllm-meta-llama-Llama-2-7b"
+  ]
+}
+```
+
+**Response (No Optimization Needed):**
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "success": true,
+  "optimized": false,
+  "message": "No models need optimization"
+}
+```
+
+**Behavior:**
+- Checks all deployed models for VRAM usage
+- Identifies models where average usage < 70% of configured `max_gpu_utilization`
+- Restarts those models with optimized `max_gpu_utilization` set to their peak usage
+- Peak usage is clamped between 10% and 95%
+- Uses the same GPU type and model configuration as original deployment
+
+**Example:**
+```bash
+curl -X POST http://localhost:6767/optimize
+```
+
+**Note:** Models must have at least 10 VRAM usage samples before being considered for optimization.
+
+---
+
 ## Error Responses
 
 ### 404 Not Found

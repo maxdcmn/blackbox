@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/maxdcmn/blackbox-cli/internal/config"
 )
 
 func (m *DashboardModel) renderMetricsGrid(width, height int, focused bool) string {
@@ -23,85 +24,48 @@ func (m *DashboardModel) renderMetricsGrid(width, height int, focused bool) stri
 
 	if m.last == nil || m.lastErr != nil {
 		rows = []string{
-			fmt.Sprintf("%s %s", labelStyle.Render("VRAM Usage:"), styleColor(colorMuted).Render("--/-- GB")),
-			fmt.Sprintf("%s %s", labelStyle.Render("Memory Blocks:"), styleColor(colorMuted).Render("--/-- (Total: --)")),
-			fmt.Sprintf("%s %s", labelStyle.Render("Processes:"), styleColor(colorMuted).Render("-- (none)")),
-			fmt.Sprintf("%s %s", labelStyle.Render("Fragmentation:"), styleColor(colorMuted).Render("--%%")),
+			fmt.Sprintf("%s %s", labelStyle.Render("Allocated VRAM:"), styleColor(colorMuted).Render("-- GB")),
+			fmt.Sprintf("%s %s", labelStyle.Render("Used KV Cache:"), styleColor(colorMuted).Render("-- GB")),
 		}
 	} else {
-		usedGB := float64(m.last.UsedBytes) / gbDivisor
-		totalGB := float64(m.last.TotalBytes) / gbDivisor
-		freeGB := float64(m.last.FreeBytes) / gbDivisor
-		activeBlocks := m.last.ActiveBlocks
-		freeBlocks := m.last.FreeBlocks
-		fragmentation := m.last.FragmentationRatio * 100.0
+		totalGB := float64(m.last.TotalVRAMBytes) / gbDivisor
+		allocatedGB := float64(m.last.AllocatedVRAMBytes) / gbDivisor
+		usedKVCacheGB := float64(m.last.UsedKVCacheBytes) / gbDivisor
+		allocatedPercent := 0.0
+		if m.last.TotalVRAMBytes > 0 {
+			allocatedPercent = (float64(m.last.AllocatedVRAMBytes) / float64(m.last.TotalVRAMBytes)) * 100.0
+		}
 
 		rows = []string{
-			fmt.Sprintf("%s %s/%s GB", labelStyle.Render("VRAM Usage:"),
-				styleColor(colorOrange).Render(fmt.Sprintf("%.2f", usedGB)),
-				styleColor(colorOrange).Render(fmt.Sprintf("%.2f", totalGB))),
-			fmt.Sprintf("%s %s GB", labelStyle.Render("Free VRAM:"),
-				styleColor(colorGreen).Render(fmt.Sprintf("%.2f", freeGB))),
-			fmt.Sprintf("%s %s/%s %s", labelStyle.Render("Memory Blocks:"),
-				styleColor(colorOrange).Render(fmt.Sprintf("%d", activeBlocks)),
-				styleColor(colorYellow).Render(fmt.Sprintf("%d", freeBlocks)),
-				styleColor(colorItalic).Render(fmt.Sprintf("(Total: %d)", activeBlocks+freeBlocks))),
-			fmt.Sprintf("%s %s", labelStyle.Render("Fragmentation:"),
-				styleColor(getPercentColor(fragmentation)).Render(fmt.Sprintf("%.2f%%", fragmentation))),
-			fmt.Sprintf("%s %s", labelStyle.Render("Processes:"),
-				styleColor(colorCyan).Render(fmt.Sprintf("%d", len(m.last.Processes)))),
+			fmt.Sprintf("%s %s / %s GB", labelStyle.Render("Allocated VRAM:"),
+				styleColor(colorOrange).Render(fmt.Sprintf("%.2f", allocatedGB)),
+				styleColor(colorItalic).Render(fmt.Sprintf("%.2f", totalGB))),
+			fmt.Sprintf("%s %s", labelStyle.Render("Allocated %:"),
+				styleColor(getPercentColor(allocatedPercent)).Render(fmt.Sprintf("%.1f%%", allocatedPercent))),
+			fmt.Sprintf("%s %s GB", labelStyle.Render("Used KV Cache:"),
+				styleColor(colorGreen).Render(fmt.Sprintf("%.2f", usedKVCacheGB))),
 		}
 
-		for i, proc := range m.last.Processes {
-			if i >= 5 {
-				break
-			}
-			procUsedGB := float64(proc.UsedBytes) / gbDivisor
-			procName := proc.Name
-			if len(procName) > 20 {
-				procName = procName[:20] + "..."
-			}
-			rows = append(rows, fmt.Sprintf("%s %s %s",
-				labelStyle.Render(fmt.Sprintf("  PID %d:", proc.PID)),
-				styleColor(colorItalic).Render(procName),
-				styleColor(colorOrange).Render(fmt.Sprintf("%.2f GB", procUsedGB))))
-		}
-
-		if len(m.last.Threads) > 0 {
-			threadCount := len(m.last.Threads)
-			displayCount := min(threadCount, maxThreads)
-			rows = append(rows, fmt.Sprintf("%s %s",
-				labelStyle.Render("Threads:"),
-				styleColor(colorCyan).Render(fmt.Sprintf("%d", threadCount))))
-			for i := 0; i < displayCount; i++ {
-				thread := m.last.Threads[i]
-				threadGB := float64(thread.AllocatedBytes) / gbDivisor
-				rows = append(rows, fmt.Sprintf("%s %s %s",
-					labelStyle.Render(fmt.Sprintf("  Thread %d:", thread.ThreadID)),
-					styleColor(colorItalic).Render(thread.State),
-					styleColor(colorOrange).Render(fmt.Sprintf("%.2f GB", threadGB))))
-			}
-			if threadCount > maxThreads {
-				rows = append(rows, styleColor(colorDim).Render(fmt.Sprintf("  ... and %d more", threadCount-maxThreads)))
-			}
-		}
-
-		if m.last.VLLMMetrics != "" {
-			metrics := parseVLLMMetrics(m.last.VLLMMetrics)
-			if metrics.requestsRunning >= 0 {
+		// Show per-model breakdown
+		if len(m.last.Models) > 0 {
+			rows = append(rows, "")
+			rows = append(rows, labelStyle.Render("Models:"))
+			for _, model := range m.last.Models {
+				modelAllocatedGB := float64(model.AllocatedVRAMBytes) / gbDivisor
+				modelUsedKVCacheGB := float64(model.UsedKVCacheBytes) / gbDivisor
+				modelName := model.ModelID
+				if len(modelName) > 20 {
+					modelName = modelName[:20] + "..."
+				}
 				rows = append(rows, fmt.Sprintf("%s %s",
-					labelStyle.Render("Requests Running:"),
-					styleColor(colorCyan).Render(fmt.Sprintf("%.0f", metrics.requestsRunning))))
-			}
-			if metrics.requestsWaiting >= 0 {
+					labelStyle.Render("  "+modelName+":"),
+					styleColor(colorItalic).Render(fmt.Sprintf("(port %d)", model.Port))))
 				rows = append(rows, fmt.Sprintf("%s %s",
-					labelStyle.Render("Requests Waiting:"),
-					styleColor(colorYellow).Render(fmt.Sprintf("%.0f", metrics.requestsWaiting))))
-			}
-			if metrics.kvCacheUsage >= 0 {
+					labelStyle.Render("    Used KV Cache:"),
+					styleColor(colorGreen).Render(fmt.Sprintf("%.2f GB", modelUsedKVCacheGB))))
 				rows = append(rows, fmt.Sprintf("%s %s",
-					labelStyle.Render("KV Cache Usage:"),
-					styleColor(colorOrange).Render(fmt.Sprintf("%.1f%%", metrics.kvCacheUsage*100))))
+					labelStyle.Render("    Allocated VRAM:"),
+					styleColor(colorOrange).Render(fmt.Sprintf("%.2f GB", modelAllocatedGB))))
 			}
 		}
 	}
@@ -168,18 +132,32 @@ func (m *DashboardModel) renderEndpointsPanel(width, height int, focused bool) s
 	if m.endpointsScroll < 0 {
 		m.endpointsScroll = 0
 	}
-	if m.selected < m.endpointsScroll {
-		m.endpointsScroll = m.selected
-	} else if m.selected >= m.endpointsScroll+innerHeight {
-		m.endpointsScroll = m.selected - innerHeight + 1
-	}
-	if m.endpointsScroll > totalEndpoints-innerHeight {
-		m.endpointsScroll = max(0, totalEndpoints-innerHeight)
+	if totalEndpoints == 0 {
+		// No endpoints, show empty state
+		m.endpointsScroll = 0
+	} else {
+		if m.selected < 0 {
+			m.selected = 0
+		}
+		if m.selected >= totalEndpoints {
+			m.selected = totalEndpoints - 1
+		}
+		if m.selected < m.endpointsScroll {
+			m.endpointsScroll = m.selected
+		} else if m.selected >= m.endpointsScroll+innerHeight {
+			m.endpointsScroll = m.selected - innerHeight + 1
+		}
+		if m.endpointsScroll > totalEndpoints-innerHeight {
+			m.endpointsScroll = max(0, totalEndpoints-innerHeight)
+		}
 	}
 
-	visibleEndpoints := m.endpoints[m.endpointsScroll:]
-	if len(visibleEndpoints) > innerHeight {
-		visibleEndpoints = visibleEndpoints[:innerHeight]
+	var visibleEndpoints []config.Endpoint
+	if totalEndpoints > 0 && m.endpointsScroll < totalEndpoints {
+		visibleEndpoints = m.endpoints[m.endpointsScroll:]
+		if len(visibleEndpoints) > innerHeight {
+			visibleEndpoints = visibleEndpoints[:innerHeight]
+		}
 	}
 
 	availableWidth := max(0, width-4)
@@ -231,24 +209,26 @@ func (m *DashboardModel) renderDataPanel(width, height int, focused bool) string
 	availableHeight := innerHeight - 2
 	boxHeight := max(5, availableHeight/3)
 
-	usedMB := int(m.last.UsedBytes / (1024 * 1024))
-	totalMB := int(m.last.TotalBytes / (1024 * 1024))
+	allocatedMB := int(m.last.AllocatedVRAMBytes / (1024 * 1024))
+	totalMB := int(m.last.TotalVRAMBytes / (1024 * 1024))
 	vramMax := maxFloat(100.0, m.maxVRAMSeen)
-	vramContent := m.renderMetricContent("VRAM Usage", boxHeight, width, usedMB, totalMB, 0, m.getVRAMHistory(), vramColor, vramMax)
+	vramContent := m.renderMetricContent("Allocated VRAM", boxHeight, width, allocatedMB, totalMB, 0, m.getVRAMHistory(), vramColor, vramMax)
 
-	blocksMax := maxFloat(100.0, m.maxBlocksSeen)
-	blocksContent := m.renderMetricContent("Memory Blocks", boxHeight, width, m.last.ActiveBlocks, m.last.FreeBlocks, 0, m.getBlocksHistory(), blocksColor, blocksMax)
+	usedKVCacheMB := int(m.last.UsedKVCacheBytes / (1024 * 1024))
+	kvCacheMax := maxFloat(100.0, m.maxBlocksSeen)
+	kvCacheContent := m.renderMetricContent("Used KV Cache", boxHeight, width, usedKVCacheMB, 0, 0, m.getBlocksHistory(), blocksColor, kvCacheMax)
 
-	fragMax := maxFloat(100.0, m.maxFragSeen)
-	fragmentationContent := m.renderMetricContent("Fragmentation", boxHeight, width, int(m.last.FragmentationRatio*100), 100, 0, m.getFragmentationHistory(), fragmentationColor, fragMax)
+	prefixHitRate := int(m.last.PrefixCacheHitRate)
+	prefixHitRateMax := maxFloat(100.0, m.maxPrefixHitRateSeen)
+	prefixHitRateContent := m.renderMetricContent("Prefix Cache Hit Rate", boxHeight, width, prefixHitRate, 0, 0, m.getPrefixCacheHitRateHistory(), prefixHitRateColor, prefixHitRateMax)
 
 	emptyLine := lipgloss.NewStyle().Background(lipgloss.Color(colorBg)).Render(strings.Repeat(" ", max(0, width-2)))
 	combined := strings.Join([]string{
 		strings.TrimRight(vramContent, "\n"),
 		emptyLine,
-		strings.TrimRight(blocksContent, "\n"),
+		strings.TrimRight(kvCacheContent, "\n"),
 		emptyLine,
-		strings.TrimRight(fragmentationContent, "\n"),
+		strings.TrimRight(prefixHitRateContent, "\n"),
 	}, "\n")
 	return borderStyle(width, height, focused).Render(combined)
 }
@@ -313,7 +293,7 @@ func (m *DashboardModel) renderStatusBar(width, height int, endpointsFocused boo
 	helpText := styleColor(colorItalic).Render("?: help")
 	leftContent := helpText
 	if endpointsFocused {
-		leftText := styleColor(colorItalic).Render("n: new  e: edit  d: delete  q: quit")
+		leftText := styleColor(colorItalic).Render("n: new  e: edit  d: delete  D: deploy  q: quit")
 		leftContent = helpText + "  " + leftText
 	}
 
